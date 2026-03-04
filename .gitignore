@@ -1,0 +1,48 @@
+# === Global Gitignore for AACA Project ===
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Binary files
+*.deb
+*.rpm
+*.exe
+*.dmg
+
+# Backup files
+*.bak
+*.backup
+
+# Large files (>10MB) - do not commit
+*.tar.gz
+*.zip
+*.7z
+
+# Documentation builds (keep only markdown source)
+docs/*.html
+docs/*.tex
+docs/*.txt
+docs/*.pdf

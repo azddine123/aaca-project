@@ -1,0 +1,52 @@
+# FastAPI Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# AI/ML Libraries
+opencv-python==4.9.0.80
+numpy==1.26.3
+Pillow==10.2.0
+easyocr==1.7.0
+# pix2tex - installed separately via pip
+transformers==4.37.0
+torch==2.1.2
+torchvision==0.16.2
+
+# OCR Alternative
+pytesseract==0.3.10
+
+# LLM Integration
+openai==1.9.0
+google-generativeai==0.3.2
+anthropic==0.18.0
+
+# Database
+# Option 1: MongoDB (RECOMMENDED - local, no config needed)
+pymongo==4.6.1
+
+# Option 2: Firebase (requires credentials.json)
+# firebase-admin==6.3.0
+
+# File Upload (for local storage)
+aiofiles==23.2.1
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# Utilities
+python-dateutil==2.8.2
+httpx==0.26.0
+aiofiles==23.2.1
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
