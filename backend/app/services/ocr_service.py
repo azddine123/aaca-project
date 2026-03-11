@@ -4,6 +4,12 @@ import logging
 import re
 from typing import Any
 
+from PIL import Image as _PILImage
+
+# Pillow >= 10.0 removed Image.ANTIALIAS; EasyOCR 1.7.x still references it.
+if not hasattr(_PILImage, "ANTIALIAS"):
+    _PILImage.ANTIALIAS = _PILImage.LANCZOS  # type: ignore[attr-defined]
+
 from app.core.config import settings
 
 logger = logging.getLogger("aaca")
@@ -40,12 +46,12 @@ class OCRService:
         Returns structured result with text, bounding boxes, and confidence.
         """
         if self.engine == "easyocr":
-            return await self._extract_with_easyocr(image_bytes)
+            return await self._extract_with_easyocr(image_bytes, detect_formulas)
         elif self.engine == "tesseract":
-            return await self._extract_with_tesseract(image_bytes)
+            return await self._extract_with_tesseract(image_bytes, detect_formulas)
         raise ValueError(f"Unknown OCR engine: {self.engine}")
 
-    async def _extract_with_easyocr(self, image_bytes: bytes) -> dict[str, Any]:
+    async def _extract_with_easyocr(self, image_bytes: bytes, detect_formulas: bool = True) -> dict[str, Any]:
         """Extract text using EasyOCR."""
         import cv2
         import numpy as np
@@ -85,7 +91,7 @@ class OCRService:
             "engine": "easyocr",
         }
 
-    async def _extract_with_tesseract(self, image_bytes: bytes) -> dict[str, Any]:
+    async def _extract_with_tesseract(self, image_bytes: bytes, detect_formulas: bool = True) -> dict[str, Any]:
         """Extract text using Tesseract OCR."""
         try:
             import io

@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity,
     StyleSheet, KeyboardAvoidingView, Platform,
-    ActivityIndicator, Alert,
+    ActivityIndicator, StatusBar,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useAuth } from '../contexts/AuthContext';
-import { COLORS, SIZES, FONTS, SHADOWS } from '../theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { COLORS, SIZES, FONTS, SHADOWS, GRADIENTS } from '@/theme';
 
 export default function LoginScreen() {
     const { login } = useAuth();
@@ -15,10 +16,14 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [emailFocused, setEmailFocused] = useState(false);
+    const [pwFocused, setPwFocused] = useState(false);
 
     const handleLogin = async () => {
+        setError('');
         if (!email.trim() || !password.trim()) {
-            Alert.alert('Erreur', 'Veuillez remplir tous les champs.');
+            setError('Veuillez remplir tous les champs.');
             return;
         }
         try {
@@ -26,7 +31,7 @@ export default function LoginScreen() {
             await login(email.trim(), password);
             router.replace('/(tabs)/home');
         } catch (err: any) {
-            Alert.alert('Connexion échouée', err.message || 'Email ou mot de passe incorrect.');
+            setError(err.message || 'Email ou mot de passe incorrect.');
         } finally {
             setLoading(false);
         }
@@ -34,68 +39,90 @@ export default function LoginScreen() {
 
     return (
         <KeyboardAvoidingView
-            style={styles.container}
+            style={styles.root}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            {/* Logo */}
-            <View style={styles.logoContainer}>
-                <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>A</Text>
-                </View>
+            <StatusBar barStyle="light-content" />
+            <LinearGradient colors={['#0A0E1F', '#07091A']} style={styles.bg} />
+
+            {/* Logo section */}
+            <View style={styles.logoSection}>
+                <LinearGradient colors={GRADIENTS.primary} style={styles.logoCircle}>
+                    <Text style={styles.logoLetter}>A</Text>
+                </LinearGradient>
                 <Text style={styles.appName}>AACA</Text>
                 <Text style={styles.tagline}>AI Academic Cognitive Assistant</Text>
             </View>
 
             {/* Form */}
             <View style={styles.form}>
-                <View style={styles.inputWrapper}>
-                    <MaterialCommunityIcons name="email-outline" size={20} color={COLORS.textSecondary} style={styles.inputIcon} />
+                <Text style={styles.formTitle}>Connexion</Text>
+
+                {error ? (
+                    <View style={styles.errorBox}>
+                        <MaterialCommunityIcons name="alert-circle-outline" size={16} color={COLORS.error} />
+                        <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                ) : null}
+
+                {/* Email */}
+                <View style={[styles.inputWrapper, emailFocused && styles.inputFocused]}>
+                    <MaterialCommunityIcons name="email-outline" size={18} color={emailFocused ? COLORS.primary : COLORS.textMuted} />
                     <TextInput
                         style={styles.input}
-                        placeholder="Email"
+                        placeholder="Adresse email"
                         placeholderTextColor={COLORS.textPlaceholder}
                         value={email}
-                        onChangeText={setEmail}
+                        onChangeText={t => { setEmail(t); setError(''); }}
                         keyboardType="email-address"
                         autoCapitalize="none"
                         autoCorrect={false}
+                        onFocus={() => setEmailFocused(true)}
+                        onBlur={() => setEmailFocused(false)}
                     />
                 </View>
 
-                <View style={styles.inputWrapper}>
-                    <MaterialCommunityIcons name="lock-outline" size={20} color={COLORS.textSecondary} style={styles.inputIcon} />
+                {/* Password */}
+                <View style={[styles.inputWrapper, pwFocused && styles.inputFocused]}>
+                    <MaterialCommunityIcons name="lock-outline" size={18} color={pwFocused ? COLORS.primary : COLORS.textMuted} />
                     <TextInput
                         style={styles.input}
                         placeholder="Mot de passe"
                         placeholderTextColor={COLORS.textPlaceholder}
                         value={password}
-                        onChangeText={setPassword}
+                        onChangeText={t => { setPassword(t); setError(''); }}
                         secureTextEntry={!showPassword}
+                        onFocus={() => setPwFocused(true)}
+                        onBlur={() => setPwFocused(false)}
                     />
-                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <MaterialCommunityIcons
                             name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                            size={20}
-                            color={COLORS.textSecondary}
+                            size={18}
+                            color={COLORS.textMuted}
                         />
                     </TouchableOpacity>
                 </View>
 
+                {/* Submit */}
                 <TouchableOpacity
-                    style={[styles.button, loading && styles.buttonDisabled]}
                     onPress={handleLogin}
                     disabled={loading}
+                    style={[styles.submitBtn, loading && styles.submitDisabled]}
                     activeOpacity={0.85}
                 >
-                    {loading
-                        ? <ActivityIndicator color={COLORS.white} />
-                        : <Text style={styles.buttonText}>Se connecter</Text>
-                    }
+                    <LinearGradient colors={GRADIENTS.primary} style={styles.submitGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                        {loading
+                            ? <ActivityIndicator color={COLORS.white} />
+                            : <Text style={styles.submitText}>Se connecter</Text>
+                        }
+                    </LinearGradient>
                 </TouchableOpacity>
 
+                {/* Link */}
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')} style={styles.linkRow}>
                     <Text style={styles.linkText}>Pas encore de compte ? </Text>
-                    <Text style={[styles.linkText, styles.linkHighlight]}>S'inscrire</Text>
+                    <Text style={styles.linkHighlight}>Créer un compte</Text>
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
@@ -103,89 +130,31 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-        justifyContent: 'center',
-        padding: SIZES.xl,
-    },
-    logoContainer: {
-        alignItems: 'center',
-        marginBottom: SIZES.xxl,
-    },
-    logoCircle: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: COLORS.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: SIZES.md,
-        ...SHADOWS.md,
-    },
-    logoText: {
-        fontSize: 40,
-        fontWeight: 'bold',
-        color: COLORS.white,
-    },
-    appName: {
-        ...FONTS.h1,
-        color: COLORS.primary,
-        letterSpacing: 4,
-    },
-    tagline: {
-        ...FONTS.body2,
-        marginTop: 4,
-        textAlign: 'center',
-    },
-    form: {
-        gap: SIZES.md,
-    },
-    inputWrapper: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: SIZES.borderRadius,
-        paddingHorizontal: SIZES.md,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    inputIcon: {
-        marginRight: SIZES.sm,
-    },
-    input: {
-        flex: 1,
-        height: 52,
-        color: COLORS.textPrimary,
-        fontSize: SIZES.fontMd,
-    },
-    button: {
-        backgroundColor: COLORS.primary,
-        height: 52,
-        borderRadius: SIZES.borderRadius,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: SIZES.sm,
-        ...SHADOWS.md,
-    },
-    buttonDisabled: {
-        opacity: 0.7,
-    },
-    buttonText: {
-        color: COLORS.white,
-        fontSize: SIZES.fontMd,
-        fontWeight: '700',
-    },
-    linkRow: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginTop: SIZES.sm,
-    },
-    linkText: {
-        ...FONTS.body2,
-    },
-    linkHighlight: {
-        color: COLORS.primary,
-        fontWeight: '600',
-    },
+    root: { flex: 1, backgroundColor: COLORS.background, justifyContent: 'center', padding: SIZES.xl },
+    bg: { ...StyleSheet.absoluteFillObject },
+
+    logoSection: { alignItems: 'center', marginBottom: SIZES.xxl + 8, gap: SIZES.sm },
+    logoCircle: { width: 76, height: 76, borderRadius: 22, justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary },
+    logoLetter: { fontSize: 38, fontWeight: '900', color: COLORS.white },
+    appName: { fontSize: SIZES.fontXXl, fontWeight: '900', color: COLORS.textPrimary, letterSpacing: 6 },
+    tagline: { ...FONTS.body2, textAlign: 'center' },
+
+    form: { gap: SIZES.md },
+    formTitle: { ...FONTS.h3, marginBottom: SIZES.xs },
+
+    errorBox: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, backgroundColor: COLORS.error + '18', borderRadius: SIZES.borderRadiusSm, padding: SIZES.sm, borderWidth: 1, borderColor: COLORS.error + '40' },
+    errorText: { flex: 1, color: COLORS.error, fontSize: SIZES.fontSm, lineHeight: 18 },
+
+    inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadius, paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.border, height: 52 },
+    inputFocused: { borderColor: COLORS.borderActive },
+    input: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontMd },
+
+    submitBtn: { borderRadius: SIZES.borderRadius, overflow: 'hidden', ...SHADOWS.primary },
+    submitDisabled: { opacity: 0.6 },
+    submitGrad: { height: 52, justifyContent: 'center', alignItems: 'center' },
+    submitText: { color: COLORS.white, fontSize: SIZES.fontMd, fontWeight: '700' },
+
+    linkRow: { flexDirection: 'row', justifyContent: 'center', marginTop: SIZES.xs },
+    linkText: { ...FONTS.body2 },
+    linkHighlight: { fontSize: SIZES.fontSm, color: COLORS.primary, fontWeight: '700' },
 });

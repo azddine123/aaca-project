@@ -44,7 +44,7 @@ class AdaptiveLearningService:
     def analyze_strengths_weaknesses(
         self,
         quiz_results: list[dict],
-        subject: str,
+        subject_distribution: dict,
     ) -> dict[str, Any]:
         """Analyze user's strengths and weaknesses."""
         topic_scores: defaultdict[str, list[float]] = defaultdict(list)

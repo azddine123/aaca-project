@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "AACA utilise la caméra pour capturer vos notes académiques.",
-        "NSPhotoLibraryUsageDescription": "AACA accède à vos photos pour importer des notes."
+        "NSPhotoLibraryUsageDescription": "AACA accède à vos photos pour importer des notes.",
+        "NSPhotoLibraryAddUsageDescription": "AACA enregistre automatiquement les photos prises dans votre galerie."
       }
     },
     "android": {
@@ -25,6 +26,7 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
         "INTERNET"
       ],
       "usesCleartextTraffic": true
@@ -49,6 +51,14 @@
         "expo-camera",
         {
           "cameraPermission": "Autoriser AACA à utiliser la caméra pour capturer vos notes."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "AACA accède à vos photos pour importer des notes.",
+          "savePhotosPermission": "AACA enregistre automatiquement les photos prises dans votre galerie.",
+          "isAccessMediaLocationEnabled": false
         }
       ]
     ],

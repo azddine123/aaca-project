@@ -3,59 +3,141 @@ import {
     View, Text, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from './contexts/AuthContext';
-import { API_URL } from './config/api';
-import { COLORS, SIZES, FONTS, SHADOWS } from './theme';
+import * as MediaLibrary from 'expo-media-library';
+import { useAuth } from '@/contexts/AuthContext';
+import { API_URL } from '@/config/api';
+import { COLORS, SIZES, FONTS, SHADOWS, GRADIENTS } from '@/theme';
 
+type Step = 'idle' | 'processing' | 'done' | 'error';
+
+const STEPS = ['Sélection', 'Analyse IA', 'Résultat'];
+
+function StepIndicator({ step }: { step: Step }) {
+    const active = step === 'idle' ? 0 : step === 'processing' ? 1 : 2;
+    return (
+        <View style={si.row}>
+            {STEPS.map((label, i) => {
+                const done = i < active;
+                const current = i === active;
+                return (
+                    <React.Fragment key={i}>
+                        <View style={si.step}>
+                            <View style={[si.circle, done && si.circleDone, current && si.circleCurrent]}>
+                                {done
+                                    ? <MaterialCommunityIcons name="check" size={12} color={COLORS.white} />
+                                    : <Text style={[si.num, current && si.numCurrent]}>{i + 1}</Text>
+                                }
+                            </View>
+                            <Text style={[si.label, (done || current) && si.labelActive]}>{label}</Text>
+                        </View>
+                        {i < STEPS.length - 1 && (
+                            <View style={[si.line, done && si.lineDone]} />
+                        )}
+                    </React.Fragment>
+                );
+            })}
+        </View>
+    );
+}
+
+const si = StyleSheet.create({
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl },
+    step: { alignItems: 'center', gap: 4 },
+    circle: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center' },
+    circleCurrent: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '25' },
+    circleDone: { borderColor: COLORS.success, backgroundColor: COLORS.success },
+    num: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted },
+    numCurrent: { color: COLORS.primary },
+    label: { fontSize: 9, fontWeight: '600', color: COLORS.textMuted },
+    labelActive: { color: COLORS.textSecondary },
+    line: { flex: 1, height: 1.5, backgroundColor: COLORS.border, marginBottom: 16 },
+    lineDone: { backgroundColor: COLORS.success },
+});
 
 export default function CaptureScreen() {
-    const { auth } = useAuth();
-    const [processing, setProcessing] = useState(false);
+    const { auth, authFetch } = useAuth();
+    const [step, setStep] = useState<Step>('idle');
     const [preview, setPreview] = useState<string | null>(null);
     const [result, setResult] = useState<any | null>(null);
+    const [errorMsg, setErrorMsg] = useState('');
 
     const pickImage = async (fromCamera: boolean) => {
-        const { status } = fromCamera
-            ? await ImagePicker.requestCameraPermissionsAsync()
-            : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (status !== 'granted') {
-            Alert.alert('Permission requise', fromCamera ? "L'accès à la caméra est nécessaire." : "L'accès à la galerie est nécessaire.");
-            return;
-        }
-
-        const picked = fromCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.85 })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.85 });
-
-        if (!picked.canceled && picked.assets[0]) {
-            setPreview(picked.assets[0].uri);
-            setResult(null);
-            await processImage(picked.assets[0].uri);
+        if (fromCamera) {
+            const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+            if (camPerm.status !== 'granted') {
+                Alert.alert('Permission requise', "L'accès à la caméra est nécessaire.");
+                return;
+            }
+            const picked = await ImagePicker.launchCameraAsync({
+                mediaTypes: 'images',
+                quality: 0.9,
+            });
+            if (!picked.canceled && picked.assets[0]) {
+                const uri = picked.assets[0].uri;
+                // Sauvegarde automatique dans la galerie (silencieuse)
+                try {
+                    const libPerm = await MediaLibrary.requestPermissionsAsync();
+                    if (libPerm.status === 'granted') {
+                        await MediaLibrary.saveToLibraryAsync(uri);
+                    }
+                } catch { /* non critique si indisponible sur Expo Go */ }
+                setPreview(uri);
+                setResult(null);
+                setErrorMsg('');
+                await processImage(uri);
+            }
+        } else {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission requise', "L'accès à la galerie est nécessaire.");
+                return;
+            }
+            const picked = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: 'images',
+                quality: 0.9,
+            });
+            if (!picked.canceled && picked.assets[0]) {
+                const uri = picked.assets[0].uri;
+                setPreview(uri);
+                setResult(null);
+                setErrorMsg('');
+                await processImage(uri);
+            }
         }
     };
 
     const processImage = async (uri: string) => {
-        setProcessing(true);
+        setStep('processing');
         try {
             const form = new FormData();
             form.append('file', { uri, name: 'capture.jpg', type: 'image/jpeg' } as any);
-            const res = await fetch(`${API_URL}/process/capture`, {
+            const res = await authFetch(`${API_URL}/process/capture`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${auth.token}` },
                 body: form,
             });
-            if (!res.ok) throw new Error('Traitement échoué');
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || 'Traitement échoué');
+            }
             const data = await res.json();
             setResult(data);
+            setStep('done');
         } catch (e: any) {
-            Alert.alert('Erreur', e.message || 'Impossible de traiter l\'image');
-        } finally {
-            setProcessing(false);
+            setErrorMsg(e.message || "Impossible de traiter l'image");
+            setStep('error');
         }
+    };
+
+    const reset = () => {
+        setStep('idle');
+        setPreview(null);
+        setResult(null);
+        setErrorMsg('');
     };
 
     return (
@@ -63,53 +145,90 @@ export default function CaptureScreen() {
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-                    <MaterialCommunityIcons name="arrow-left" size={24} color={COLORS.textPrimary} />
+                    <MaterialCommunityIcons name="arrow-left" size={22} color={COLORS.textSecondary} />
                 </TouchableOpacity>
-                <Text style={FONTS.h3}>Capturer une note</Text>
-                <View style={{ width: 32 }} />
+                <Text style={styles.headerTitle}>Capturer une note</Text>
+                <View style={{ width: 38 }} />
             </View>
 
-            {/* Preview */}
-            <View style={styles.previewArea}>
+            {/* Step indicator */}
+            <StepIndicator step={step} />
+
+            {/* Preview area */}
+            <View style={styles.previewWrapper}>
                 {preview ? (
-                    <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="contain" />
+                    <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="cover" />
                 ) : (
                     <View style={styles.placeholder}>
-                        <MaterialCommunityIcons name="image-outline" size={64} color={COLORS.textSecondary} />
-                        <Text style={FONTS.body2}>Aucune image sélectionnée</Text>
+                        <MaterialCommunityIcons name="image-area" size={64} color={COLORS.textMuted} />
+                        <Text style={styles.placeholderText}>Prenez une photo de votre cours</Text>
+                        <Text style={styles.placeholderSub}>Le texte sera extrait automatiquement par OCR</Text>
                     </View>
                 )}
-                {processing && (
-                    <View style={styles.processingOverlay}>
+
+                {/* Processing overlay */}
+                {step === 'processing' && (
+                    <View style={styles.overlay}>
                         <ActivityIndicator size="large" color={COLORS.primary} />
-                        <Text style={[FONTS.body1, { color: COLORS.white, marginTop: SIZES.md }]}>Analyse en cours…</Text>
+                        <Text style={styles.overlayTitle}>Analyse en cours…</Text>
+                        <Text style={styles.overlaySub}>OCR · Structuration · IA</Text>
                     </View>
                 )}
             </View>
 
-            {/* Result */}
-            {result && !processing && (
-                <View style={styles.resultCard}>
-                    <MaterialCommunityIcons name="check-circle" size={24} color={COLORS.success} />
-                    <Text style={[FONTS.body1, { fontWeight: '600' }]}>Note créée avec succès !</Text>
+            {/* Result / Error banners */}
+            {step === 'done' && result && (
+                <View style={styles.successBanner}>
+                    <MaterialCommunityIcons name="check-circle" size={22} color={COLORS.success} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.successTitle}>Note créée avec succès !</Text>
+                        <Text style={styles.successSub}>
+                            {result.flashcards_count > 0 ? `${result.flashcards_count} flashcards générées · ` : ''}
+                            {result.quiz_id ? 'Quiz disponible' : ''}
+                        </Text>
+                    </View>
                     <TouchableOpacity
                         style={styles.viewBtn}
                         onPress={() => router.push({ pathname: '/note-detail', params: { id: result.note_id } })}
                     >
-                        <Text style={styles.viewBtnText}>Voir la note</Text>
+                        <Text style={styles.viewBtnText}>Voir</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+            {step === 'error' && (
+                <View style={styles.errorBanner}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={22} color={COLORS.error} />
+                    <Text style={[styles.successSub, { color: COLORS.error, flex: 1 }]}>{errorMsg}</Text>
+                    <TouchableOpacity onPress={reset}>
+                        <Text style={{ color: COLORS.error, fontWeight: '700' }}>Réessayer</Text>
                     </TouchableOpacity>
                 </View>
             )}
 
-            {/* Buttons */}
-            <View style={styles.actions}>
-                <TouchableOpacity style={styles.actionBtn} onPress={() => pickImage(true)} disabled={processing}>
-                    <MaterialCommunityIcons name="camera-outline" size={28} color={COLORS.white} />
-                    <Text style={styles.actionBtnText}>Caméra</Text>
+            {/* Action buttons */}
+            <View style={styles.actionsRow}>
+                <TouchableOpacity
+                    style={[styles.actionBtn, step === 'processing' && styles.actionBtnDisabled]}
+                    onPress={() => pickImage(true)}
+                    disabled={step === 'processing'}
+                    activeOpacity={0.85}
+                >
+                    <LinearGradient colors={GRADIENTS.primary} style={styles.actionGrad}>
+                        <MaterialCommunityIcons name="camera-outline" size={24} color={COLORS.white} />
+                        <Text style={styles.actionBtnText}>Caméra</Text>
+                    </LinearGradient>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.surface }]} onPress={() => pickImage(false)} disabled={processing}>
-                    <MaterialCommunityIcons name="image-outline" size={28} color={COLORS.primary} />
-                    <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>Galerie</Text>
+
+                <TouchableOpacity
+                    style={[styles.actionBtn, styles.actionBtnOutline, step === 'processing' && styles.actionBtnDisabled]}
+                    onPress={() => pickImage(false)}
+                    disabled={step === 'processing'}
+                    activeOpacity={0.85}
+                >
+                    <View style={styles.actionOutlineInner}>
+                        <MaterialCommunityIcons name="image-multiple-outline" size={24} color={COLORS.primary} />
+                        <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>Galerie</Text>
+                    </View>
                 </TouchableOpacity>
             </View>
         </View>
@@ -118,16 +237,40 @@ export default function CaptureScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background, paddingTop: 56 },
+
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl },
-    backBtn: { padding: 4 },
-    previewArea: { flex: 1, margin: SIZES.xl, backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadius, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', ...SHADOWS.sm },
+    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+    headerTitle: { ...FONTS.h4 },
+
+    previewWrapper: {
+        flex: 1, marginHorizontal: SIZES.xl,
+        backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadiusLg,
+        overflow: 'hidden', marginBottom: SIZES.md,
+        borderWidth: 1, borderColor: COLORS.border,
+        ...SHADOWS.sm,
+    },
     previewImage: { width: '100%', height: '100%' },
-    placeholder: { alignItems: 'center', gap: SIZES.md },
-    processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,23,42,0.85)', justifyContent: 'center', alignItems: 'center' },
-    resultCard: { margin: SIZES.xl, backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadius, padding: SIZES.xl, alignItems: 'center', gap: SIZES.md, borderWidth: 1, borderColor: COLORS.success },
-    viewBtn: { backgroundColor: COLORS.primary, paddingHorizontal: SIZES.xl, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius },
-    viewBtnText: { color: COLORS.white, fontWeight: '700' },
-    actions: { flexDirection: 'row', gap: SIZES.md, padding: SIZES.xl, paddingTop: 0 },
-    actionBtn: { flex: 1, backgroundColor: COLORS.primary, height: 56, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center', gap: 4, ...SHADOWS.sm },
-    actionBtnText: { color: COLORS.white, fontWeight: '600', fontSize: SIZES.fontSm },
+    placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SIZES.sm, padding: SIZES.xxl },
+    placeholderText: { ...FONTS.body1, textAlign: 'center', color: COLORS.textSecondary },
+    placeholderSub: { ...FONTS.caption, textAlign: 'center' },
+
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(7,9,26,0.88)', justifyContent: 'center', alignItems: 'center', gap: SIZES.md },
+    overlayTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '600' },
+    overlaySub: { color: COLORS.textSecondary, fontSize: SIZES.fontSm },
+
+    successBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: COLORS.success + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: COLORS.success + '40' },
+    successTitle: { color: COLORS.textPrimary, fontWeight: '700', fontSize: SIZES.fontSm },
+    successSub: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
+    viewBtn: { backgroundColor: COLORS.success, paddingHorizontal: SIZES.md, paddingVertical: 6, borderRadius: SIZES.borderRadiusSm },
+    viewBtnText: { color: COLORS.white, fontWeight: '700', fontSize: SIZES.fontSm },
+
+    errorBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: COLORS.error + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: COLORS.error + '40' },
+
+    actionsRow: { flexDirection: 'row', gap: SIZES.md, paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxl },
+    actionBtn: { flex: 1, borderRadius: SIZES.borderRadius, overflow: 'hidden', ...SHADOWS.primary },
+    actionBtnOutline: { borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: 'transparent', shadowOpacity: 0 },
+    actionBtnDisabled: { opacity: 0.5 },
+    actionGrad: { height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
+    actionOutlineInner: { height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
+    actionBtnText: { color: COLORS.white, fontWeight: '700', fontSize: SIZES.fontMd },
 });

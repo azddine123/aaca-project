@@ -47,16 +47,35 @@ class Settings(BaseSettings):
     LLM_CACHE_TTL: int = 3600  # 1 hour
     MAX_PROCESSING_TIME: int = 30  # seconds
 
+    # Safe default origins for local development only.
+    # In production, set CORS_ORIGINS as a comma-separated list of allowed origins.
+    _DEFAULT_DEV_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ]
+
     @property
     def CORS_ORIGINS(self) -> list[str]:
-        """Get CORS origins as a list."""
+        """Get CORS origins as a list.
+
+        Reads the CORS_ORIGINS environment variable (comma-separated URLs).
+        Falls back to localhost dev origins when the variable is absent.
+        Never returns ["*"] to prevent inadvertent open CORS in production.
+        """
         cors_value = os.getenv("CORS_ORIGINS", "")
-        
+
         if not cors_value or cors_value.strip() == "":
-            return ["*"]
-        
+            return self._DEFAULT_DEV_ORIGINS
+
         origins = [origin.strip() for origin in cors_value.split(",") if origin.strip()]
-        return origins if origins else ["*"]
+        if not origins:
+            raise ValueError(
+                "CORS_ORIGINS env var is set but contains no valid origins. "
+                "Provide a comma-separated list, e.g. "
+                "'https://app.example.com,https://admin.example.com'."
+            )
+        return origins
 
     class Config:
         env_file = ".env"

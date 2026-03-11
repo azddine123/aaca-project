@@ -47,21 +47,23 @@ interface AuthContextType {
     auth: AuthState;
     login: (email: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
+    authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
 }
 
 // Context
 const AuthContext = createContext<AuthContextType>({
-    auth: { 
-        token: null, 
-        refreshToken: null, 
-        isAuthenticated: false, 
-        userName: null, 
-        userEmail: null, 
-        loading: true, 
-        error: null 
+    auth: {
+        token: null,
+        refreshToken: null,
+        isAuthenticated: false,
+        userName: null,
+        userEmail: null,
+        loading: true,
+        error: null
     },
     login: async () => {},
     logout: async () => {},
+    authFetch: async (input, init) => fetch(input, init),
 });
 
 // Hook
@@ -154,6 +156,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
+    // Wrapper fetch qui déconnecte automatiquement sur 401
+    const authFetch = async (input: RequestInfo, init?: RequestInit): Promise<Response> => {
+        const res = await fetch(input, init);
+        if (res.status === 401) {
+            await logout();
+        }
+        return res;
+    };
+
     const logout = async () => {
         await storage.deleteItem('aaca_token');
         await storage.deleteItem('aaca_username');
@@ -172,7 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ auth, login, logout }}>
+        <AuthContext.Provider value={{ auth, login, logout, authFetch }}>
             {children}
         </AuthContext.Provider>
     );

@@ -8,12 +8,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.core.config import settings
+from app.core.exceptions import ServiceUnavailableError
 from app.core.logging import setup_logging
 
 # Setup logging
@@ -57,6 +59,15 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+@app.exception_handler(ServiceUnavailableError)
+async def service_unavailable_handler(request: Request, exc: ServiceUnavailableError) -> JSONResponse:
+    """Return HTTP 503 when a required service is not available."""
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc), "service": exc.service},
+    )
+
 
 # Configure CORS
 app.add_middleware(

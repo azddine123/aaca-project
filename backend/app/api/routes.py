@@ -233,7 +233,9 @@ async def capture_and_process(
         "note_id": note_id,
         "quiz_id": quiz_id,
         "flashcards_count": len(flashcards),
-        "processing_result": result,
+        "processing_time": result["processing_time"],
+        "detected_subject": result.get("detected_subject"),
+        "title": result["structured_content"].get("title", "Untitled Note"),
     }
 
 
@@ -515,13 +517,20 @@ async def review_flashcard(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Review a flashcard using spaced repetition."""
-    flashcards = await mongodb_service.get_flashcards()
-    card = next((f for f in flashcards if f["id"] == card_id), None)
+    card = await mongodb_service.get_flashcard(card_id)
 
     if not card:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Flashcard not found",
+        )
+
+    # Verify ownership: the flashcard's parent note must belong to the current user.
+    note = await mongodb_service.get_note(card["note_id"])
+    if not note or note["user_id"] != current_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
 
     next_review = adaptive_learning.calculate_next_review(card, review.difficulty_rating)

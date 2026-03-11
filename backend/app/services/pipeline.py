@@ -110,39 +110,50 @@ class ProcessingPipeline:
             logger.info("📝 Step 5: Content structuring...")
             corrected_text = ocr_service.correct_text(raw_text)
 
-            structured_content = await llm_service.structure_content(
-                corrected_text,
-                subject_hint=subject,
-            )
-            result["steps"]["structuring"] = {
-                "status": "success",
-                "title": structured_content.get("title", "Untitled"),
+            structured_content = {
+                "title": "Untitled",
+                "sections": [{"heading": "Content", "content": corrected_text}],
+                "definitions": [], "examples": [], "key_concepts": [], "formulas": [],
+                "subject_category": subject or "other",
             }
+            try:
+                structured_content = await llm_service.structure_content(
+                    corrected_text, subject_hint=subject,
+                )
+                result["steps"]["structuring"] = {"status": "success", "title": structured_content.get("title", "Untitled")}
+            except Exception as e:
+                logger.warning(f"⚠️ Step 5 skipped (LLM unavailable): {e}")
+                result["steps"]["structuring"] = {"status": "skipped", "reason": str(e)}
 
             # Step 6: Generate Summary (if requested)
             summary_data = None
             if options.get("generate_summary", True):
                 logger.info("📋 Step 6: Generating summary...")
-                summary_data = await llm_service.generate_summary(
-                    corrected_text,
-                    summary_type=options.get("summary_type", "detailed"),
-                    target_level=options.get("target_level"),
-                )
-                result["steps"]["summary"] = {"status": "success"}
+                try:
+                    summary_data = await llm_service.generate_summary(
+                        corrected_text,
+                        summary_type=options.get("summary_type", "detailed"),
+                        target_level=options.get("target_level"),
+                    )
+                    result["steps"]["summary"] = {"status": "success"}
+                except Exception as e:
+                    logger.warning(f"⚠️ Step 6 skipped (LLM unavailable): {e}")
+                    result["steps"]["summary"] = {"status": "skipped"}
 
             # Step 7: Generate Quiz (if requested)
             quiz_data = None
             if options.get("generate_quiz", True):
                 logger.info("❓ Step 7: Generating quiz...")
-                quiz_data = await llm_service.generate_quiz(
-                    corrected_text,
-                    num_questions=options.get("num_quiz_questions", 5),
-                    difficulty=options.get("difficulty", "intermediate"),
-                )
-                result["steps"]["quiz"] = {
-                    "status": "success",
-                    "questions_count": len(quiz_data.get("questions", [])),
-                }
+                try:
+                    quiz_data = await llm_service.generate_quiz(
+                        corrected_text,
+                        num_questions=options.get("num_quiz_questions", 5),
+                        difficulty=options.get("difficulty", "intermediate"),
+                    )
+                    result["steps"]["quiz"] = {"status": "success", "questions_count": len(quiz_data.get("questions", []))}
+                except Exception as e:
+                    logger.warning(f"⚠️ Step 7 skipped (LLM unavailable): {e}")
+                    result["steps"]["quiz"] = {"status": "skipped"}
 
             processing_time = time.time() - start_time
 

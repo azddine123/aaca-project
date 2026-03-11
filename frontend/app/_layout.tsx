@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
-import { AuthProvider } from './contexts/AuthContext';
-import { NotesProvider } from './contexts/NotesContext';
-import { StudyProvider } from './contexts/StudyContext';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { NotesProvider } from '@/contexts/NotesContext';
+import { StudyProvider } from '@/contexts/StudyContext';
 
 export default function RootLayout() {
     return (

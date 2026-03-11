@@ -123,7 +123,8 @@ class LLMService:
         elif self.provider == "anthropic":
             response = await self._call_anthropic(prompt, system_prompt, temperature, max_tokens)
         else:
-            raise ValueError("No LLM provider configured")
+            logger.warning("⚠️ No LLM provider configured — returning stub response")
+            return {"content": "", "model": "none", "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
 
         self.cache.set(cache_key, self.provider, response)
         return response
@@ -208,7 +209,7 @@ class LLMService:
         messages = [{"role": "user", "content": prompt}]
 
         kwargs: dict[str, Any] = {
-            "model": "claude-3-sonnet-20240229",
+            "model": "claude-sonnet-4-6",
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
