@@ -1,6 +1,6 @@
-// AACA Design System — Premium Dark Theme
+// AACA Design System — supports Dark & Light themes
 
-export const COLORS = {
+export const DARK_COLORS = {
     // Brand
     primary: '#6366F1',
     primaryDark: '#4F46E5',
@@ -52,6 +52,61 @@ export const COLORS = {
     other: '#6B7280',
 };
 
+export const LIGHT_COLORS = {
+    // Brand — same
+    primary: '#6366F1',
+    primaryDark: '#4F46E5',
+    primaryLight: '#818CF8',
+    accent: '#0EA5E9',
+    accentDark: '#0284C7',
+
+    // Backgrounds — Clean white
+    background: '#F4F6FF',
+    surface: '#FFFFFF',
+    surfaceMid: '#EEF2FF',
+    surfaceHigh: '#E0E7FF',
+    surfaceElevated: '#C7D2FE',
+
+    // Borders
+    border: 'rgba(0,0,0,0.08)',
+    borderMid: 'rgba(0,0,0,0.14)',
+    borderActive: 'rgba(99,102,241,0.5)',
+
+    // Text
+    textPrimary: '#1E2048',
+    textSecondary: '#4B5563',
+    textMuted: '#9CA3AF',
+    textPlaceholder: '#D1D5DB',
+
+    white: '#FFFFFF',
+    black: '#000000',
+
+    // Status
+    error: '#EF4444',
+    errorDark: '#DC2626',
+    success: '#10B981',
+    successDark: '#059669',
+    warning: '#F59E0B',
+    warningDark: '#D97706',
+    info: '#3B82F6',
+
+    // Subject palette — same
+    mathematics: '#3B82F6',
+    physics: '#A855F7',
+    chemistry: '#10B981',
+    biology: '#F97316',
+    cs: '#6366F1',
+    engineering: '#06B6D4',
+    economics: '#EAB308',
+    literature: '#EC4899',
+    history: '#8B5CF6',
+    philosophy: '#64748B',
+    other: '#6B7280',
+};
+
+// Default export keeps backward compatibility with static imports
+export const COLORS = DARK_COLORS;
+
 export const GRADIENTS = {
     primary:  ['#6366F1', '#8B5CF6'] as [string, string],
     accent:   ['#38BDF8', '#6366F1'] as [string, string],
@@ -61,6 +116,18 @@ export const GRADIENTS = {
     dark:     ['#0D1226', '#131A30'] as [string, string],
     hero:     ['#07091A', '#0D1226'] as [string, string],
     card:     ['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)'] as [string, string],
+    capture:  ['#6366F1', '#06B6D4'] as [string, string],
+};
+
+export const LIGHT_GRADIENTS = {
+    primary:  ['#6366F1', '#8B5CF6'] as [string, string],
+    accent:   ['#38BDF8', '#6366F1'] as [string, string],
+    success:  ['#10B981', '#34D399'] as [string, string],
+    warning:  ['#F59E0B', '#FBBF24'] as [string, string],
+    error:    ['#EF4444', '#F87171'] as [string, string],
+    dark:     ['#EEF2FF', '#E0E7FF'] as [string, string],
+    hero:     ['#E0E7FF', '#EEF2FF'] as [string, string],
+    card:     ['rgba(255,255,255,0.9)', 'rgba(255,255,255,0.7)'] as [string, string],
     capture:  ['#6366F1', '#06B6D4'] as [string, string],
 };
 
@@ -90,15 +157,15 @@ export const SIZES = {
 };
 
 export const FONTS: Record<string, any> = {
-    h1:    { fontSize: SIZES.fontTitle, fontWeight: '800', color: COLORS.textPrimary, letterSpacing: -0.8 },
-    h2:    { fontSize: SIZES.fontXXl,   fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.5 },
-    h3:    { fontSize: SIZES.fontXl,    fontWeight: '600', color: COLORS.textPrimary, letterSpacing: -0.2 },
-    h4:    { fontSize: SIZES.fontLg,    fontWeight: '600', color: COLORS.textPrimary },
-    body1: { fontSize: SIZES.fontMd,    fontWeight: '400', color: COLORS.textPrimary, lineHeight: 23 },
-    body2: { fontSize: SIZES.fontSm,    fontWeight: '400', color: COLORS.textSecondary, lineHeight: 20 },
-    caption: { fontSize: SIZES.fontXs,  fontWeight: '400', color: COLORS.textMuted },
-    label: { fontSize: SIZES.fontXs,    fontWeight: '700', color: COLORS.textSecondary, textTransform: 'uppercase' as const, letterSpacing: 1 },
-    mono:  { fontSize: SIZES.fontSm,    fontFamily: 'monospace', color: COLORS.textPrimary },
+    h1:    { fontSize: SIZES.fontTitle, fontWeight: '800', letterSpacing: -0.8 },
+    h2:    { fontSize: SIZES.fontXXl,   fontWeight: '700', letterSpacing: -0.5 },
+    h3:    { fontSize: SIZES.fontXl,    fontWeight: '600', letterSpacing: -0.2 },
+    h4:    { fontSize: SIZES.fontLg,    fontWeight: '600' },
+    body1: { fontSize: SIZES.fontMd,    fontWeight: '400', lineHeight: 23 },
+    body2: { fontSize: SIZES.fontSm,    fontWeight: '400', lineHeight: 20 },
+    caption: { fontSize: SIZES.fontXs,  fontWeight: '400' },
+    label: { fontSize: SIZES.fontXs,    fontWeight: '700', textTransform: 'uppercase' as const, letterSpacing: 1 },
+    mono:  { fontSize: SIZES.fontSm,    fontFamily: 'monospace' },
 };
 
 export const SHADOWS = {
@@ -140,17 +207,17 @@ export const SHADOWS = {
 };
 
 export const SUBJECT_COLORS: Record<string, string> = {
-    mathematics: COLORS.mathematics,
-    physics:     COLORS.physics,
-    chemistry:   COLORS.chemistry,
-    biology:     COLORS.biology,
-    cs:          COLORS.cs,
-    engineering: COLORS.engineering,
-    economics:   COLORS.economics,
-    literature:  COLORS.literature,
-    history:     COLORS.history,
-    philosophy:  COLORS.philosophy,
-    other:       COLORS.other,
+    mathematics: DARK_COLORS.mathematics,
+    physics:     DARK_COLORS.physics,
+    chemistry:   DARK_COLORS.chemistry,
+    biology:     DARK_COLORS.biology,
+    cs:          DARK_COLORS.cs,
+    engineering: DARK_COLORS.engineering,
+    economics:   DARK_COLORS.economics,
+    literature:  DARK_COLORS.literature,
+    history:     DARK_COLORS.history,
+    philosophy:  DARK_COLORS.philosophy,
+    other:       DARK_COLORS.other,
 };
 
 export const SUBJECT_LABELS: Record<string, string> = {
@@ -167,7 +234,6 @@ export const SUBJECT_LABELS: Record<string, string> = {
     other:       'Autre',
 };
 
-// Helper to detect Platform without importing RN (avoids circular deps)
-declare const Platform: any;
+export type AppColors = typeof DARK_COLORS;
 
-export default { COLORS, SIZES, FONTS, SHADOWS, GRADIENTS, SUBJECT_COLORS, SUBJECT_LABELS };
+export default { COLORS, DARK_COLORS, LIGHT_COLORS, SIZES, FONTS, SHADOWS, GRADIENTS, LIGHT_GRADIENTS, SUBJECT_COLORS, SUBJECT_LABELS };
