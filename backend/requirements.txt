@@ -25,6 +25,13 @@ openai==1.9.0
 google-generativeai==0.3.2
 anthropic==0.18.0
 
+# Vector Store & Embeddings
+chromadb==0.4.22
+
+# PDF Processing
+pdfplumber==0.10.3
+pdf2image==1.17.0
+
 # Database
 # Option 1: MongoDB (RECOMMENDED - local, no config needed)
 pymongo==4.6.1

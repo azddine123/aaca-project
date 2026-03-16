@@ -338,6 +338,7 @@ class MongoDBService:
         self,
         note_id: str,
         flashcards: list[dict[str, Any]],
+        user_id: str | None = None,
     ) -> list[str]:
         """Create flashcards for a note."""
         collection = self._get_collection("flashcards")
@@ -351,6 +352,8 @@ class MongoDBService:
             card["_id"] = ObjectId()
             card["id"] = str(card["_id"])
             card["note_id"] = note_id
+            if user_id:
+                card["user_id"] = user_id
             card["created_at"] = now
             card["updated_at"] = now
             ids.append(card["id"])
@@ -376,6 +379,9 @@ class MongoDBService:
         if note_id:
             query["note_id"] = note_id
 
+        if user_id:
+            query["user_id"] = user_id
+
         if due_only:
             query["next_review"] = {"$lte": datetime.now()}
 
@@ -385,12 +391,6 @@ class MongoDBService:
         for card in cards:
             card["id"] = str(card.pop("_id"))
             result.append(card)
-
-        if user_id:
-            notes_collection = self._get_collection("notes")
-            user_notes = list(notes_collection.find({"user_id": user_id}, {"_id": 1}))
-            user_note_ids = {str(n["_id"]) for n in user_notes}
-            result = [c for c in result if c.get("note_id") in user_note_ids]
 
         return _sanitize(result)
 

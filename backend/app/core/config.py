@@ -42,10 +42,15 @@ class Settings(BaseSettings):
 
     # Processing
     OCR_ENGINE: str = "paddleocr"
+    OCR_CONFIDENCE_THRESHOLD: float = 0.8  # fallback to OpenAI Vision below this score
     LATEX_MODEL: str = "pix2tex"
     ENABLE_LLM_CACHE: bool = True
     LLM_CACHE_TTL: int = 3600  # 1 hour
     MAX_PROCESSING_TIME: int = 30  # seconds
+
+    # Embeddings & Vector Store
+    EMBEDDING_MODEL: str = "text-embedding-3-small"  # OpenAI embedding model
+    VECTOR_STORE_DIR: str = "vector_store"            # ChromaDB persistence directory
 
     # Safe default origins for local development only.
     # In production, set CORS_ORIGINS as a comma-separated list of allowed origins.
