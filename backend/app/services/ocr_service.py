@@ -45,7 +45,11 @@ class OCRService:
 
         Returns structured result with text, bounding boxes, and confidence.
         """
-        if self.engine == "easyocr":
+        if self.engine == "paddleocr":
+            from app.services.paddle_ocr_service import paddle_ocr_service
+
+            return await paddle_ocr_service.extract_text(image_bytes, detect_formulas)
+        elif self.engine == "easyocr":
             return await self._extract_with_easyocr(image_bytes, detect_formulas)
         elif self.engine == "tesseract":
             return await self._extract_with_tesseract(image_bytes, detect_formulas)
