@@ -81,16 +81,23 @@ class ProcessingPipeline:
             raw_text = ocr_result["text"]
 
             # Step 3: LaTeX Formula Extraction
-            logger.info("📐 Step 3: Formula extraction...")
-            formula_regions = image_processor.detect_formula_regions(processed_image)
-            latex_formulas = await latex_service.extract_formulas(
-                processed_image,
-                detected_regions=formula_regions,
-            )
-            result["steps"]["latex"] = {
-                "status": "success",
-                "formulas_found": len(latex_formulas),
-            }
+            # Skipped when using paddleocr — PPStructureV3 already handles document structure.
+            from app.core.config import settings
+
+            if settings.OCR_ENGINE == "paddleocr":
+                latex_formulas: list = []
+                result["steps"]["latex"] = {"status": "skipped", "reason": "PPStructureV3 handles structure"}
+            else:
+                logger.info("📐 Step 3: Formula extraction...")
+                formula_regions = image_processor.detect_formula_regions(processed_image)
+                latex_formulas = await latex_service.extract_formulas(
+                    processed_image,
+                    detected_regions=formula_regions,
+                )
+                result["steps"]["latex"] = {
+                    "status": "success",
+                    "formulas_found": len(latex_formulas),
+                }
 
             # Step 4: Subject Classification
             logger.info("📚 Step 4: Subject classification...")

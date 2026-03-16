@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
 
     # Processing
-    OCR_ENGINE: str = "easyocr"
+    OCR_ENGINE: str = "paddleocr"
     LATEX_MODEL: str = "pix2tex"
     ENABLE_LLM_CACHE: bool = True
     LLM_CACHE_TTL: int = 3600  # 1 hour

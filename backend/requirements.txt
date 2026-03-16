@@ -16,6 +16,10 @@ torchvision==0.16.2
 # OCR Alternative
 pytesseract==0.3.10
 
+# PaddleOCR (PP-OCRv5)
+paddlepaddle==3.0.0
+paddleocr
+
 # LLM Integration
 openai==1.9.0
 google-generativeai==0.3.2
