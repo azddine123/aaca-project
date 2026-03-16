@@ -216,7 +216,7 @@ async def capture_and_process(
     # Generate and save flashcards
     flashcards = await llm_service.generate_flashcards(result["corrected_text"])
     if flashcards:
-        flashcard_ids = await mongodb_service.create_flashcards(note_id, flashcards)
+        flashcard_ids = await mongodb_service.create_flashcards(note_id, flashcards, current_user)
         await mongodb_service.update_note(note_id, {"flashcards": flashcard_ids})
 
     # Update user progress
@@ -423,7 +423,7 @@ async def submit_quiz(
     """Submit quiz answers and get results."""
     quiz = await mongodb_service.get_quiz(quiz_id)
 
-    if not quiz:
+    if not quiz or quiz.get("user_id") != current_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Quiz not found",
