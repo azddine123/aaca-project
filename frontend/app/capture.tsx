@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, Image,
@@ -9,33 +9,39 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppColors } from '@/contexts/AppearanceContext';
 import { API_URL } from '@/config/api';
-import { COLORS, SIZES, FONTS, SHADOWS, GRADIENTS } from '@/theme';
+import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 
 type Step = 'idle' | 'processing' | 'done' | 'error';
-
 const STEPS = ['Sélection', 'Analyse IA', 'Résultat'];
 
-function StepIndicator({ step }: { step: Step }) {
+function StepIndicator({ step, C }: { step: Step; C: any }) {
     const active = step === 'idle' ? 0 : step === 'processing' ? 1 : 2;
     return (
-        <View style={si.row}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl }}>
             {STEPS.map((label, i) => {
                 const done = i < active;
                 const current = i === active;
                 return (
                     <React.Fragment key={i}>
-                        <View style={si.step}>
-                            <View style={[si.circle, done && si.circleDone, current && si.circleCurrent]}>
+                        <View style={{ alignItems: 'center', gap: 4 }}>
+                            <View style={{
+                                width: 26, height: 26, borderRadius: 13,
+                                borderWidth: 1.5,
+                                borderColor: done ? C.success : current ? C.primary : C.border,
+                                backgroundColor: done ? C.success : current ? C.primary + '25' : C.surface,
+                                justifyContent: 'center', alignItems: 'center',
+                            }}>
                                 {done
-                                    ? <MaterialCommunityIcons name="check" size={12} color={COLORS.white} />
-                                    : <Text style={[si.num, current && si.numCurrent]}>{i + 1}</Text>
+                                    ? <MaterialCommunityIcons name="check" size={12} color="#fff" />
+                                    : <Text style={{ fontSize: 11, fontWeight: '700', color: current ? C.primary : C.textMuted }}>{i + 1}</Text>
                                 }
                             </View>
-                            <Text style={[si.label, (done || current) && si.labelActive]}>{label}</Text>
+                            <Text style={{ fontSize: 9, fontWeight: '600', color: (done || current) ? C.textSecondary : C.textMuted }}>{label}</Text>
                         </View>
                         {i < STEPS.length - 1 && (
-                            <View style={[si.line, done && si.lineDone]} />
+                            <View style={{ flex: 1, height: 1.5, backgroundColor: done ? C.success : C.border, marginBottom: 16 }} />
                         )}
                     </React.Fragment>
                 );
@@ -44,22 +50,11 @@ function StepIndicator({ step }: { step: Step }) {
     );
 }
 
-const si = StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl },
-    step: { alignItems: 'center', gap: 4 },
-    circle: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center' },
-    circleCurrent: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '25' },
-    circleDone: { borderColor: COLORS.success, backgroundColor: COLORS.success },
-    num: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted },
-    numCurrent: { color: COLORS.primary },
-    label: { fontSize: 9, fontWeight: '600', color: COLORS.textMuted },
-    labelActive: { color: COLORS.textSecondary },
-    line: { flex: 1, height: 1.5, backgroundColor: COLORS.border, marginBottom: 16 },
-    lineDone: { backgroundColor: COLORS.success },
-});
-
 export default function CaptureScreen() {
     const { auth, authFetch } = useAuth();
+    const C = useAppColors();
+    const styles = useMemo(() => makeStyles(C), [C]);
+
     const [step, setStep] = useState<Step>('idle');
     const [preview, setPreview] = useState<string | null>(null);
     const [result, setResult] = useState<any | null>(null);
@@ -72,22 +67,14 @@ export default function CaptureScreen() {
                 Alert.alert('Permission requise', "L'accès à la caméra est nécessaire.");
                 return;
             }
-            const picked = await ImagePicker.launchCameraAsync({
-                mediaTypes: 'images',
-                quality: 0.9,
-            });
+            const picked = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.9 });
             if (!picked.canceled && picked.assets[0]) {
                 const uri = picked.assets[0].uri;
-                // Sauvegarde automatique dans la galerie (silencieuse)
                 try {
                     const libPerm = await MediaLibrary.requestPermissionsAsync();
-                    if (libPerm.status === 'granted') {
-                        await MediaLibrary.saveToLibraryAsync(uri);
-                    }
-                } catch { /* non critique si indisponible sur Expo Go */ }
-                setPreview(uri);
-                setResult(null);
-                setErrorMsg('');
+                    if (libPerm.status === 'granted') await MediaLibrary.saveToLibraryAsync(uri);
+                } catch { }
+                setPreview(uri); setResult(null); setErrorMsg('');
                 await processImage(uri);
             }
         } else {
@@ -96,15 +83,10 @@ export default function CaptureScreen() {
                 Alert.alert('Permission requise', "L'accès à la galerie est nécessaire.");
                 return;
             }
-            const picked = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: 'images',
-                quality: 0.9,
-            });
+            const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.9 });
             if (!picked.canceled && picked.assets[0]) {
                 const uri = picked.assets[0].uri;
-                setPreview(uri);
-                setResult(null);
-                setErrorMsg('');
+                setPreview(uri); setResult(null); setErrorMsg('');
                 await processImage(uri);
             }
         }
@@ -124,8 +106,7 @@ export default function CaptureScreen() {
                 const err = await res.json().catch(() => ({}));
                 throw new Error(err.detail || 'Traitement échoué');
             }
-            const data = await res.json();
-            setResult(data);
+            setResult(await res.json());
             setStep('done');
         } catch (e: any) {
             setErrorMsg(e.message || "Impossible de traiter l'image");
@@ -133,26 +114,20 @@ export default function CaptureScreen() {
         }
     };
 
-    const reset = () => {
-        setStep('idle');
-        setPreview(null);
-        setResult(null);
-        setErrorMsg('');
-    };
+    const reset = () => { setStep('idle'); setPreview(null); setResult(null); setErrorMsg(''); };
 
     return (
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-                    <MaterialCommunityIcons name="arrow-left" size={22} color={COLORS.textSecondary} />
+                    <MaterialCommunityIcons name="arrow-left" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Capturer une note</Text>
                 <View style={{ width: 38 }} />
             </View>
 
-            {/* Step indicator */}
-            <StepIndicator step={step} />
+            <StepIndicator step={step} C={C} />
 
             {/* Preview area */}
             <View style={styles.previewWrapper}>
@@ -160,47 +135,45 @@ export default function CaptureScreen() {
                     <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="cover" />
                 ) : (
                     <View style={styles.placeholder}>
-                        <MaterialCommunityIcons name="image-area" size={64} color={COLORS.textMuted} />
-                        <Text style={styles.placeholderText}>Prenez une photo de votre cours</Text>
-                        <Text style={styles.placeholderSub}>Le texte sera extrait automatiquement par OCR</Text>
+                        <MaterialCommunityIcons name="image-area" size={64} color={C.textMuted} />
+                        <Text style={[styles.placeholderText, { color: C.textSecondary }]}>Prenez une photo de votre cours</Text>
+                        <Text style={[styles.placeholderSub, { color: C.textMuted }]}>Le texte sera extrait automatiquement par OCR</Text>
                     </View>
                 )}
-
-                {/* Processing overlay */}
                 {step === 'processing' && (
                     <View style={styles.overlay}>
-                        <ActivityIndicator size="large" color={COLORS.primary} />
-                        <Text style={styles.overlayTitle}>Analyse en cours…</Text>
-                        <Text style={styles.overlaySub}>OCR · Structuration · IA</Text>
+                        <ActivityIndicator size="large" color={C.primary} />
+                        <Text style={[styles.overlayTitle, { color: C.textPrimary }]}>Analyse en cours…</Text>
+                        <Text style={{ color: C.textSecondary, fontSize: SIZES.fontSm }}>OCR · Structuration · IA</Text>
                     </View>
                 )}
             </View>
 
-            {/* Result / Error banners */}
+            {/* Banners */}
             {step === 'done' && result && (
                 <View style={styles.successBanner}>
-                    <MaterialCommunityIcons name="check-circle" size={22} color={COLORS.success} />
+                    <MaterialCommunityIcons name="check-circle" size={22} color={C.success} />
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.successTitle}>Note créée avec succès !</Text>
-                        <Text style={styles.successSub}>
+                        <Text style={[styles.bannerTitle, { color: C.textPrimary }]}>Note créée avec succès !</Text>
+                        <Text style={{ color: C.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 }}>
                             {result.flashcards_count > 0 ? `${result.flashcards_count} flashcards générées · ` : ''}
                             {result.quiz_id ? 'Quiz disponible' : ''}
                         </Text>
                     </View>
                     <TouchableOpacity
-                        style={styles.viewBtn}
+                        style={{ backgroundColor: C.success, paddingHorizontal: SIZES.md, paddingVertical: 6, borderRadius: SIZES.borderRadiusSm }}
                         onPress={() => router.push({ pathname: '/note-detail', params: { id: result.note_id } })}
                     >
-                        <Text style={styles.viewBtnText}>Voir</Text>
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: SIZES.fontSm }}>Voir</Text>
                     </TouchableOpacity>
                 </View>
             )}
             {step === 'error' && (
                 <View style={styles.errorBanner}>
-                    <MaterialCommunityIcons name="alert-circle-outline" size={22} color={COLORS.error} />
-                    <Text style={[styles.successSub, { color: COLORS.error, flex: 1 }]}>{errorMsg}</Text>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={22} color={C.error} />
+                    <Text style={{ color: C.error, flex: 1, fontSize: SIZES.fontXs }}>{errorMsg}</Text>
                     <TouchableOpacity onPress={reset}>
-                        <Text style={{ color: COLORS.error, fontWeight: '700' }}>Réessayer</Text>
+                        <Text style={{ color: C.error, fontWeight: '700' }}>Réessayer</Text>
                     </TouchableOpacity>
                 </View>
             )}
@@ -208,26 +181,26 @@ export default function CaptureScreen() {
             {/* Action buttons */}
             <View style={styles.actionsRow}>
                 <TouchableOpacity
-                    style={[styles.actionBtn, step === 'processing' && styles.actionBtnDisabled]}
+                    style={[styles.actionBtn, step === 'processing' && { opacity: 0.5 }]}
                     onPress={() => pickImage(true)}
                     disabled={step === 'processing'}
                     activeOpacity={0.85}
                 >
                     <LinearGradient colors={GRADIENTS.primary} style={styles.actionGrad}>
-                        <MaterialCommunityIcons name="camera-outline" size={24} color={COLORS.white} />
-                        <Text style={styles.actionBtnText}>Caméra</Text>
+                        <MaterialCommunityIcons name="camera-outline" size={24} color="#fff" />
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: SIZES.fontMd }}>Caméra</Text>
                     </LinearGradient>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[styles.actionBtn, styles.actionBtnOutline, step === 'processing' && styles.actionBtnDisabled]}
+                    style={[styles.actionBtn, { borderWidth: 1.5, borderColor: C.primary, shadowOpacity: 0 }, step === 'processing' && { opacity: 0.5 }]}
                     onPress={() => pickImage(false)}
                     disabled={step === 'processing'}
                     activeOpacity={0.85}
                 >
-                    <View style={styles.actionOutlineInner}>
-                        <MaterialCommunityIcons name="image-multiple-outline" size={24} color={COLORS.primary} />
-                        <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>Galerie</Text>
+                    <View style={styles.actionGrad}>
+                        <MaterialCommunityIcons name="image-multiple-outline" size={24} color={C.primary} />
+                        <Text style={{ color: C.primary, fontWeight: '700', fontSize: SIZES.fontMd }}>Galerie</Text>
                     </View>
                 </TouchableOpacity>
             </View>
@@ -235,42 +208,27 @@ export default function CaptureScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.background, paddingTop: 56 },
+const makeStyles = (C: any) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background, paddingTop: 56 },
 
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl },
-    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-    headerTitle: { ...FONTS.h4 },
+    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
+    headerTitle: { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textPrimary },
 
-    previewWrapper: {
-        flex: 1, marginHorizontal: SIZES.xl,
-        backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadiusLg,
-        overflow: 'hidden', marginBottom: SIZES.md,
-        borderWidth: 1, borderColor: COLORS.border,
-        ...SHADOWS.sm,
-    },
+    previewWrapper: { flex: 1, marginHorizontal: SIZES.xl, backgroundColor: C.surface, borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', marginBottom: SIZES.md, borderWidth: 1, borderColor: C.border, ...SHADOWS.sm },
     previewImage: { width: '100%', height: '100%' },
     placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SIZES.sm, padding: SIZES.xxl },
-    placeholderText: { ...FONTS.body1, textAlign: 'center', color: COLORS.textSecondary },
-    placeholderSub: { ...FONTS.caption, textAlign: 'center' },
+    placeholderText: { fontSize: SIZES.fontMd, textAlign: 'center' },
+    placeholderSub: { fontSize: SIZES.fontXs, textAlign: 'center' },
 
     overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(7,9,26,0.88)', justifyContent: 'center', alignItems: 'center', gap: SIZES.md },
-    overlayTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '600' },
-    overlaySub: { color: COLORS.textSecondary, fontSize: SIZES.fontSm },
+    overlayTitle: { fontSize: SIZES.fontLg, fontWeight: '600' },
 
-    successBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: COLORS.success + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: COLORS.success + '40' },
-    successTitle: { color: COLORS.textPrimary, fontWeight: '700', fontSize: SIZES.fontSm },
-    successSub: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
-    viewBtn: { backgroundColor: COLORS.success, paddingHorizontal: SIZES.md, paddingVertical: 6, borderRadius: SIZES.borderRadiusSm },
-    viewBtnText: { color: COLORS.white, fontWeight: '700', fontSize: SIZES.fontSm },
-
-    errorBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: COLORS.error + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: COLORS.error + '40' },
+    successBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: C.success + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: C.success + '40' },
+    bannerTitle: { fontWeight: '700', fontSize: SIZES.fontSm },
+    errorBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginHorizontal: SIZES.xl, marginBottom: SIZES.sm, backgroundColor: C.error + '18', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: C.error + '40' },
 
     actionsRow: { flexDirection: 'row', gap: SIZES.md, paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxl },
     actionBtn: { flex: 1, borderRadius: SIZES.borderRadius, overflow: 'hidden', ...SHADOWS.primary },
-    actionBtnOutline: { borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: 'transparent', shadowOpacity: 0 },
-    actionBtnDisabled: { opacity: 0.5 },
     actionGrad: { height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
-    actionOutlineInner: { height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
-    actionBtnText: { color: COLORS.white, fontWeight: '700', fontSize: SIZES.fontMd },
 });
