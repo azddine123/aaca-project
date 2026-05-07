@@ -1,9 +1,14 @@
 import React from 'react';
-import { TouchableOpacity, View, StyleSheet, Text } from 'react-native';
+import { TouchableOpacity, View, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs, router, Redirect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '@/theme';
+
+// Moroccan tab bar tokens
+const COBALT      = '#1B4FD8';
+const COBALT_DEEP = '#143FAE';
+const TEXT_FAINT  = '#8A8D91';
 
 function CaptureTabButton() {
     return (
@@ -13,7 +18,12 @@ function CaptureTabButton() {
             activeOpacity={0.85}
         >
             <View style={styles.fabInner}>
-                <MaterialCommunityIcons name="camera-plus" size={26} color={COLORS.white} />
+                <LinearGradient
+                    colors={[COBALT, COBALT_DEEP]}
+                    style={StyleSheet.absoluteFillObject}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                />
+                <MaterialCommunityIcons name="camera-plus" size={26} color="#fff" />
             </View>
         </TouchableOpacity>
     );
@@ -30,8 +40,8 @@ export default function TabsLayout() {
         <Tabs
             screenOptions={{
                 headerShown: false,
-                tabBarActiveTintColor: COLORS.primary,
-                tabBarInactiveTintColor: COLORS.textMuted,
+                tabBarActiveTintColor: COBALT,
+                tabBarInactiveTintColor: TEXT_FAINT,
                 tabBarStyle: styles.tabBar,
                 tabBarLabelStyle: styles.tabLabel,
                 tabBarItemStyle: styles.tabItem,
@@ -102,13 +112,17 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
     tabBar: {
-        backgroundColor: COLORS.surface,
-        borderTopColor: COLORS.border,
+        backgroundColor: '#FFFFFF',
+        borderTopColor: '#E4E6EB',
         borderTopWidth: 1,
         height: 72,
         paddingBottom: 12,
         paddingTop: 8,
-        ...SHADOWS.md,
+        shadowColor: '#14203C',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 10,
     },
     tabLabel: {
         fontSize: 10,
@@ -125,14 +139,18 @@ const styles = StyleSheet.create({
         marginTop: -20,
     },
     fabInner: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: COLORS.primary,
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        overflow: 'hidden',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 3,
-        borderColor: COLORS.surface,
-        ...SHADOWS.primary,
+        borderColor: '#FFFFFF',
+        shadowColor: COBALT,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.42,
+        shadowRadius: 24,
+        elevation: 12,
     },
 });

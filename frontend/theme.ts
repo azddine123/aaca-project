@@ -236,4 +236,45 @@ export const SUBJECT_LABELS: Record<string, string> = {
 
 export type AppColors = typeof DARK_COLORS;
 
-export default { COLORS, DARK_COLORS, LIGHT_COLORS, SIZES, FONTS, SHADOWS, GRADIENTS, LIGHT_GRADIENTS, SUBJECT_COLORS, SUBJECT_LABELS };
+// ── Moroccan Design System ───────────────────────────────────────────
+// Used by screens that implement the Moroccan cultural redesign.
+export const MOROCCAN = {
+    // Base
+    bg:             '#F0F2F5',
+    surface:        '#FFFFFF',
+    surfaceAlt:     '#F7F8FA',
+    text:           '#1C1E21',
+    textMuted:      '#65676B',
+    textFaint:      '#8A8D91',
+    border:         '#E4E6EB',
+    borderSoft:     '#EEF0F3',
+    // Brand — cobalt blue
+    cobalt:         '#1B4FD8',
+    cobaltDeep:     '#143FAE',
+    cobaltSoft:     '#E8EEFC',
+    // Moroccan accents
+    terracotta:     '#C1440E',
+    terracottaSoft: '#FBE9E0',
+    gold:           '#D4A017',
+    goldSoft:       '#FAF1D9',
+    saffron:        '#F59E0B',
+    saffronSoft:    '#FEF1D6',
+    green:          '#1F8A5B',
+    greenSoft:      '#E2F1EA',
+    // Subjects
+    subjectColors: {
+        mathematics: '#1B4FD8',
+        physics:     '#C1440E',
+        biology:     '#1F8A5B',
+        cs:          '#F59E0B',
+        chemistry:   '#7C3AED',
+        history:     '#D4A017',
+        engineering: '#06B6D4',
+        economics:   '#EAB308',
+        literature:  '#EC4899',
+        philosophy:  '#64748B',
+        other:       '#6B7280',
+    },
+} as const;
+
+export default { COLORS, DARK_COLORS, LIGHT_COLORS, SIZES, FONTS, SHADOWS, GRADIENTS, LIGHT_GRADIENTS, SUBJECT_COLORS, SUBJECT_LABELS, MOROCCAN };

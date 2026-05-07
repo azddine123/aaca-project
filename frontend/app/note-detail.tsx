@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
     View, Text, StyleSheet, ScrollView,
-    TouchableOpacity, ActivityIndicator,
+    TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -40,12 +40,21 @@ export default function NoteDetailScreen() {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${auth.token}` },
             });
-            if (res.ok) {
-                const quiz = await res.json();
-                setCurrentQuiz(quiz);
-                router.push('/(tabs)/study');
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                Alert.alert('Erreur', err.detail || 'Impossible de générer le quiz.');
+                return;
             }
-        } catch { } finally { setLoadingQuiz(false); }
+            const quiz = await res.json();
+            if (!quiz.questions || quiz.questions.length === 0) {
+                Alert.alert('Quiz vide', 'Le quiz généré ne contient aucune question.');
+                return;
+            }
+            setCurrentQuiz(quiz);
+            router.push('/(tabs)/study');
+        } catch (e: any) {
+            Alert.alert('Erreur réseau', e.message || 'Impossible de contacter le serveur.');
+        } finally { setLoadingQuiz(false); }
     };
 
     const handleLoadFlashcards = async () => {
@@ -55,12 +64,21 @@ export default function NoteDetailScreen() {
             const res = await fetch(`${API_URL}/notes/${id}/flashcards`, {
                 headers: { Authorization: `Bearer ${auth.token}` },
             });
-            if (res.ok) {
-                const cards = await res.json();
-                setCurrentFlashcards(cards);
-                router.push('/(tabs)/study');
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                Alert.alert('Erreur', err.detail || 'Impossible de charger les flashcards.');
+                return;
             }
-        } catch { } finally { setLoadingCards(false); }
+            const cards = await res.json();
+            if (!cards || cards.length === 0) {
+                Alert.alert('Aucune flashcard', 'Aucune flashcard disponible pour cette note.');
+                return;
+            }
+            setCurrentFlashcards(cards);
+            router.push('/(tabs)/study');
+        } catch (e: any) {
+            Alert.alert('Erreur réseau', e.message || 'Impossible de contacter le serveur.');
+        } finally { setLoadingCards(false); }
     };
 
     if (isLoading || !currentNote) {
