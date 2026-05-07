@@ -1,220 +1,296 @@
-# 🎓 AI Academic Cognitive Assistant (AACA)
+# AACA — AI Academic Cognitive Assistant
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green)](https://fastapi.tiangolo.com)
-[![React Native](https://img.shields.io/badge/React%20Native-0.81-blue)](https://reactnative.dev)
-[![Expo](https://img.shields.io/badge/Expo-54.0.33-black)](https://expo.dev)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7.0-green)](https://mongodb.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-> **Transform your classroom photos into interactive, personalized learning resources using AI**
+> Transformez vos photos de cours en ressources d'apprentissage interactives grâce à l'IA
 
 ---
 
-## 📖 Table of Contents
+## Table des matières
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Project Structure](#-project-structure)
-- [API Documentation](#-api-documentation)
-- [Development](#-development)
-- [License](#-license)
+- [Vue d'ensemble](#vue-densemble)
+- [Fonctionnalités](#fonctionnalités)
+- [Architecture](#architecture)
+- [Stack technique](#stack-technique)
+- [Structure du projet](#structure-du-projet)
+- [Prérequis](#prérequis)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Lancer le projet](#lancer-le-projet)
+- [API Reference](#api-reference)
+- [Modèles de données](#modèles-de-données)
+- [Pipeline de traitement](#pipeline-de-traitement)
+- [Tests](#tests)
+- [Docker](#docker)
 
 ---
 
-## 📝 Overview
+## Vue d'ensemble
 
-**AACA** is an intelligent mobile application that uses **Generative AI** and **Computer Vision** to transform photos of classroom content (whiteboards, handwritten notes) into interactive educational materials.
-
-### How It Works
+**AACA** (AI Academic Cognitive Assistant) est une application mobile intelligente qui utilise la **vision par ordinateur** et l'**IA générative** pour transformer des photos de cours (tableaux, notes manuscrites) en matériaux pédagogiques interactifs : résumés, quiz, flashcards et plans d'apprentissage adaptatifs.
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  1. CAPTURE     │ ──▶ │  2. AI ANALYSIS  │ ──▶ │ 3. LEARNING     │
-│                 │     │                  │     │                 │
-│  📷 Take a      │     │  🔤 Extract      │     │  📚 Summaries   │
-│     photo       │     │     text         │     │  ❓ Quizzes     │
-│                 │     │  📐 LaTeX        │     │  🎴 Flashcards  │
-│                 │     │     formulas     │     │  📊 Progress    │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  1. CAPTURE     │────▶│  2. TRAITEMENT   │────▶│  3. APPRENTISSAGE│
+│                 │     │                  │     │                  │
+│  Prendre une   │     │  OCR multi-moteur│     │  Résumés         │
+│  photo         │     │  Formules LaTeX  │     │  Quiz QCM        │
+│  Importer PDF  │     │  Classification  │     │  Flashcards      │
+│                 │     │  Embeddings RAG  │     │  Progression     │
+└─────────────────┘     └──────────────────┘     └──────────────────┘
 ```
 
 ---
 
-## ✨ Features
+## Fonctionnalités
 
-| Feature | Description | Technology |
-|:--------|:------------|:-----------|
-| **Smart Capture** | Perspective correction, contrast enhancement | OpenCV |
-| **Intelligent OCR** | Text extraction with EasyOCR | EasyOCR, Tesseract |
-| **LaTeX Formulas** | Mathematical equation recognition | Transformers |
-| **AI Classification** | Automatic subject detection | LLM |
-| **Summaries** | Level-adaptive content summaries | GPT-4 / Gemini |
-| **Quizzes** | Auto-generated multiple choice questions | LLM |
-| **Flashcards** | Spaced repetition cards | SM-2 Algorithm |
-| **Adaptive Learning** | Difficulty adjustment based on performance | ML |
-| **Full-Text Search** | Search through all your notes | MongoDB |
+| Fonctionnalité | Description | Technologie |
+|:--------------|:------------|:-----------|
+| **Capture intelligente** | Correction de perspective, amélioration du contraste | OpenCV |
+| **OCR multi-moteur** | Extraction de texte avec fallback automatique | PaddleOCR / EasyOCR / Tesseract |
+| **Formules LaTeX** | Reconnaissance d'équations mathématiques | pix2tex / Transformers |
+| **Classification automatique** | Détection de la matière (Maths, Physique, Info…) | LLM |
+| **Résumés adaptatifs** | Résumés calibrés selon le niveau cognitif | GPT-4 / Gemini / Claude |
+| **Quiz interactifs** | Questions QCM générées automatiquement | LLM |
+| **Flashcards** | Répétition espacée via algorithme SM-2 | Spaced Repetition |
+| **RAG** | Recherche sémantique dans vos notes | ChromaDB + Embeddings |
+| **Apprentissage adaptatif** | Ajustement de la difficulté selon les performances | Adaptive Learning |
+| **Recherche plein texte** | Recherche dans toutes vos notes | MongoDB |
+| **Import PDF** | Traitement de documents PDF multi-pages | pdfplumber + pdf2image |
+| **Thème clair/sombre** | Interface adaptable | React Native |
 
 ---
 
-## 🛠 Tech Stack
+## Architecture
+
+```
+aaca-project/
+├── backend/                   # API FastAPI (Python 3.13)
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── routes.py      # Toutes les routes REST
+│   │   ├── core/
+│   │   │   ├── config.py      # Settings (Pydantic Settings)
+│   │   │   ├── security.py    # JWT, hachage mots de passe
+│   │   │   ├── exceptions.py  # ServiceUnavailableError (→ HTTP 503)
+│   │   │   └── logging.py     # Configuration des logs
+│   │   ├── models/
+│   │   │   └── schemas.py     # Modèles Pydantic
+│   │   ├── services/          # Logique métier (voir tableau)
+│   │   └── main.py            # Application FastAPI
+│   ├── tests/                 # Tests pytest
+│   ├── uploads/               # Stockage local des images
+│   ├── vector_store/          # Persistance ChromaDB
+│   ├── scripts/               # Scripts utilitaires (MongoDB Docker)
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+└── frontend/                  # Application mobile Expo (React Native)
+    ├── app/
+    │   ├── (auth)/
+    │   │   ├── login.tsx
+    │   │   └── register.tsx
+    │   ├── (tabs)/
+    │   │   ├── home.tsx        # Tableau de bord
+    │   │   ├── notes.tsx       # Liste des notes
+    │   │   ├── snap.tsx        # FAB capture central
+    │   │   ├── study.tsx       # Flashcards + Quiz interactifs
+    │   │   └── profile.tsx     # Profil utilisateur
+    │   ├── capture.tsx         # Écran capture photo / PDF
+    │   └── note-detail.tsx     # Détail d'une note (Résumé / Contenu / Étudier)
+    ├── contexts/
+    │   ├── AuthContext.tsx
+    │   ├── NotesContext.tsx    # fetchNotes, fetchNote, searchNotes
+    │   ├── StudyContext.tsx    # currentQuiz, currentFlashcards
+    │   └── AppearanceContext.tsx
+    ├── theme.ts                # Design tokens (couleurs, typographie)
+    └── package.json
+```
+
+---
+
+## Stack technique
 
 ### Backend
-- **Framework**: FastAPI 0.109.0
-- **Database**: MongoDB (local or Atlas)
-- **AI/Vision**: OpenCV, EasyOCR, Transformers, PyTorch
-- **LLM**: OpenAI GPT-4, Google Gemini, Anthropic Claude
-- **Auth**: JWT (python-jose, passlib)
+
+| Composant | Technologie | Version |
+|:----------|:-----------|:--------|
+| Framework | FastAPI | 0.109.0 |
+| Serveur ASGI | Uvicorn | 0.27.0 |
+| Base de données | MongoDB (pymongo sync) | 4.6.1 |
+| Vision | OpenCV | 4.9.0 |
+| OCR principal | PaddleOCR (PP-OCRv5) | 3.0.0 |
+| OCR alternatif | EasyOCR | 1.7.0 |
+| OCR alternatif 2 | Tesseract | 0.3.10 |
+| LaTeX | pix2tex / Transformers | — / 4.37.0 |
+| LLM | OpenAI / Google Gemini / Anthropic Claude | — |
+| Vector Store | ChromaDB | 0.4.22 |
+| PDF | pdfplumber + pdf2image | 0.10.3 / 1.17.0 |
+| Auth | JWT (python-jose + passlib/bcrypt) | — |
+| Validation | Pydantic v2 | 2.5.3 |
+| Tests | pytest + pytest-asyncio | 7.4.4 |
 
 ### Frontend
-- **Framework**: React Native 0.81.5 with Expo 54.0.33
-- **Navigation**: Expo Router
-- **UI**: React Native Paper
-- **Camera**: Expo Camera
-- **State Management**: Context API
 
-### Infrastructure
-- **Containerization**: Docker
-- **Storage**: Local filesystem (images)
-
----
-
-## 📋 Prerequisites
-
-| Software | Version | Link |
-|:---------|:--------|:-----|
-| Python | 3.9+ | [python.org](https://python.org) |
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| MongoDB | 5.0+ | [mongodb.com](https://mongodb.com) or Docker |
-| Git | Latest | [git-scm.com](https://git-scm.com) |
-
-### API Keys (Optional but Recommended)
-
-| Service | Purpose | Required |
-|:--------|:--------|:---------|
-| **OpenAI** | GPT-4 content generation | ⚠️ Recommended |
-| **Google AI** | Gemini (free alternative) | ❌ Optional |
-| **Anthropic** | Claude (alternative) | ❌ Optional |
+| Composant | Technologie | Version |
+|:----------|:-----------|:--------|
+| Framework | React Native | 0.81.5 |
+| Navigation | Expo Router | 6.0.23 |
+| SDK Expo | Expo | 54.0.33 |
+| UI Components | React Native Paper | 5.14.4 |
+| Caméra | expo-camera | 17.0.10 |
+| Icônes | @expo/vector-icons (MaterialCommunityIcons) | 15.0.3 |
+| Gradients | expo-linear-gradient | 15.0.8 |
+| Dates | date-fns v4 (locale `fr`) | 4.1.0 |
+| HTTP | Axios | 1.11.0 |
+| Stockage sécurisé | expo-secure-store | 15.0.8 |
+| Animations | React Native Animated + Reanimated | — / 4.1.1 |
+| TypeScript | TypeScript | 5.9.2 |
 
 ---
 
-## 🚀 Installation
+## Structure du projet
 
-### 1. Clone the Repository
+### Services backend
+
+| Service | Rôle |
+|:--------|:-----|
+| `pipeline.py` | Orchestrateur principal : image → contenu pédagogique |
+| `ocr_service.py` | OCR multi-moteur avec fallback OpenAI Vision |
+| `paddle_ocr_service.py` | Moteur PaddleOCR (PP-OCRv5) — moteur par défaut |
+| `custom_ocr_service.py` | Moteur OCR personnalisé |
+| `image_processor.py` | Prétraitement image (perspective, contraste) |
+| `latex_service.py` | Extraction de formules mathématiques |
+| `llm_service.py` | Multi-provider LLM (OpenAI / Google / Anthropic) avec cache |
+| `subject_classifier.py` | Classification automatique de matière |
+| `rag_service.py` | Pipeline RAG : indexation + recherche sémantique + Q&A |
+| `vector_store_service.py` | Persistance ChromaDB par utilisateur |
+| `embedding_service.py` | Génération d'embeddings (OpenAI text-embedding-3-small) |
+| `adaptive_learning.py` | Algorithme SM-2, niveau cognitif, recommandations |
+| `mongodb_service.py` | Couche base de données MongoDB |
+| `local_storage.py` | Stockage fichiers local |
+| `pdf_service.py` | Traitement PDF multi-pages |
+
+---
+
+## Prérequis
+
+- **Python** 3.13+
+- **Node.js** 18+ et npm
+- **MongoDB** 7.0 (local ou Atlas)
+- **Docker** (optionnel, pour MongoDB via conteneur)
+- **Expo Go** sur iOS/Android (pour tester sur téléphone physique)
+- Au moins une clé API LLM : OpenAI, Google Gemini, ou Anthropic
+
+---
+
+## Installation
+
+### 1. Cloner le projet
 
 ```bash
-git clone https://github.com/your-account/aaca-project.git
+git clone <url-du-repo>
 cd aaca-project
 ```
 
-### 2. Backend Setup
+### 2. Backend
 
 ```bash
 cd backend
 
-# Create virtual environment
-python -m venv venv
+# Créer et activer le virtualenv
+python3 -m venv venv
+source venv/bin/activate        # Linux / Mac
+# venv\Scripts\activate         # Windows
 
-# Activate (Linux/Mac)
-source venv/bin/activate
-# Activate (Windows)
-# venv\Scripts\activate
-
-# Install dependencies
+# Installer les dépendances
 pip install -r requirements.txt
 
-# Copy environment file
-cp .env.example .env
+# Installer pix2tex séparément (reconnaisseur LaTeX)
+pip install pix2tex
 ```
 
-### 3. Frontend Setup
+### 3. Frontend
 
 ```bash
-cd ../frontend
-
-# Install dependencies
+cd frontend
 npm install
-
-# Copy environment file
-cp .env.example .env
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### MongoDB Setup
+### Backend — fichier `backend/.env`
 
-**Option A: Using Docker (Recommended)**
-
-```bash
-docker run -d --name mongodb-aaca -p 27017:27017 -v mongodb_aaca_data:/data/db mongo:7.0
-```
-
-**Option B: Local MongoDB**
+Créer le fichier à partir du modèle :
 
 ```bash
-# Linux
-sudo systemctl start mongod
-
-# macOS (with Homebrew)
-brew services start mongodb-community
-
-# Windows
-net start MongoDB
+cp backend/.env.example backend/.env
 ```
 
-### Backend Environment Variables
-
-Edit `backend/.env`:
+Variables à configurer :
 
 ```env
-# Security
-SECRET_KEY=your-secret-key-generate-with-openssl-rand-hex-32
+# Sécurité (OBLIGATOIRE en production)
+SECRET_KEY=votre-clé-secrète-très-longue
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# Database
+# MongoDB
 MONGODB_URL=mongodb://localhost:27017
 DATABASE_NAME=aaca_db
 
-# LLM Providers (at least one required)
-OPENAI_API_KEY=sk-your-openai-key
-OPENAI_MODEL=gpt-4
-GOOGLE_API_KEY=your-google-key
-ANTHROPIC_API_KEY=your-anthropic-key
+# LLM — au moins une clé obligatoire
+OPENAI_API_KEY=sk-...          # Priorité 1
+GOOGLE_API_KEY=...             # Priorité 2
+ANTHROPIC_API_KEY=sk-ant-...   # Priorité 3 (modèle : claude-sonnet-4-6)
+OPENAI_MODEL=gpt-4o
 
-# CORS
-CORS_ORIGINS=http://localhost:19006,http://localhost:3000
+# CORS — inclure l'IP de votre téléphone pour les tests mobiles
+CORS_ORIGINS=http://localhost:19006,http://localhost:8081,http://192.168.x.x:8081,exp://192.168.x.x:8081
 
-# Processing
-OCR_ENGINE=easyocr
+# OCR engine : paddleocr | easyocr | tesseract | custom
+OCR_ENGINE=paddleocr
+
+# Cache LLM
 ENABLE_LLM_CACHE=true
+LLM_CACHE_TTL=3600
 ```
 
-### Frontend Environment Variables
+**Note CORS** : le backend utilise une whitelist stricte (jamais `*`). Sans variable `CORS_ORIGINS`, seuls `localhost:3000`, `localhost:5173` et `localhost:8080` sont autorisés. Pour les tests mobiles, renseignez l'IP locale de votre machine dans `CORS_ORIGINS`.
 
-Edit `frontend/.env`:
+### Sélection automatique du provider LLM
 
-```env
-API_BASE_URL=http://localhost:8000/api/v1
-APP_ENV=development
-```
+Le service LLM détecte automatiquement le provider disponible dans cet ordre :
 
-> **Note**: For Android Emulator use `http://10.0.2.2:8000/api/v1`
-> For iOS Simulator use `http://localhost:8000/api/v1`
+1. **OpenAI** si `OPENAI_API_KEY` est présent
+2. **Google Gemini** si `GOOGLE_API_KEY` est présent
+3. **Anthropic Claude** (`claude-sonnet-4-6`) si `ANTHROPIC_API_KEY` est présent
 
 ---
 
-## 🚀 Usage
+## Lancer le projet
 
-### Start the Backend
+### Étape 1 — Démarrer MongoDB
+
+**Option A — Service système :**
+```bash
+sudo systemctl start mongod
+```
+
+**Option B — Docker :**
+```bash
+bash backend/scripts/start-mongodb.sh
+```
+
+**Option C — MongoDB Atlas :** mettre à jour `MONGODB_URL` dans `.env`.
+
+Vérifier que MongoDB répond :
+```bash
+mongosh --eval "db.runCommand({ ping: 1 })"
+```
+
+### Étape 2 — Démarrer le backend
 
 ```bash
 cd backend
@@ -222,215 +298,278 @@ source venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Access Points:**
-- API: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- Health Check: http://localhost:8000/health
+| URL | Description |
+|:----|:-----------|
+| `http://localhost:8000` | API REST |
+| `http://localhost:8000/docs` | Documentation Swagger interactive |
+| `http://localhost:8000/redoc` | Documentation ReDoc |
 
-### Start the Frontend
+### Étape 3 — Démarrer le frontend
+
+Dans un second terminal :
 
 ```bash
 cd frontend
 npx expo start
 ```
 
-**Options:**
-- Press `w` for web mode
-- Press `i` for iOS Simulator
-- Press `a` for Android Emulator
-- Scan QR code with **Expo Go** app on your phone
+| Plateforme | Action |
+|:-----------|:-------|
+| Navigateur web | Appuyer `w` dans le terminal |
+| Android (émulateur) | Appuyer `a` |
+| iOS (simulateur Mac) | Appuyer `i` |
+| Téléphone physique | Scanner le QR code avec l'app **Expo Go** |
 
 ---
 
-## 📁 Project Structure
+## API Reference
 
-```
-aaca-project/
-├── 📁 backend/                 # FastAPI REST API
-│   ├── 📁 app/
-│   │   ├── 📄 main.py         # Application entry point
-│   │   ├── 📁 api/
-│   │   │   └── 📄 routes.py   # API endpoints
-│   │   ├── 📁 core/
-│   │   │   ├── 📄 config.py   # Configuration
-│   │   │   ├── 📄 security.py # JWT authentication
-│   │   │   └── 📄 logging.py  # Logging setup
-│   │   ├── 📁 models/
-│   │   │   └── 📄 schemas.py  # Pydantic models
-│   │   └── 📁 services/
-│   │       ├── 📄 pipeline.py         # Main processing pipeline
-│   │       ├── 📄 llm_service.py      # LLM integration
-│   │       ├── 📄 mongodb_service.py  # Database operations
-│   │       ├── 📄 image_processor.py  # OpenCV processing
-│   │       ├── 📄 ocr_service.py      # OCR text extraction
-│   │       ├── 📄 latex_service.py    # Formula extraction
-│   │       ├── 📄 subject_classifier.py
-│   │       └── 📄 adaptive_learning.py
-│   ├── 📁 tests/              # Pytest tests
-│   ├── 📄 requirements.txt
-│   ├── 📄 Dockerfile
-│   └── 📄 .env.example
-│
-├── 📁 frontend/                # React Native / Expo
-│   ├── 📁 app/                # Expo Router routes
-│   │   ├── 📁 (auth)/         # Auth screens (login, register)
-│   │   ├── 📁 (tabs)/         # Main tabs (home, notes, profile, study)
-│   │   ├── 📁 contexts/       # React Contexts
-│   │   ├── 📄 capture.tsx     # Camera capture screen
-│   │   ├── 📄 note-detail.tsx # Note detail view
-│   │   └── 📄 theme.ts        # Design system
-│   ├── 📁 assets/             # Images, fonts
-│   ├── 📄 App.tsx
-│   ├── 📄 app.json
-│   └── 📄 package.json
-│
-├── 📁 docs/                   # Documentation
-│   ├── 📄 api_reference.md
-│   ├── 📄 architecture.md
-│   ├── 📄 deployment.md
-│   └── 📄 rapport_backend.md
-│
-├── 📁 scripts/                # Utility scripts
-│   ├── 📄 seed_db.py
-│   ├── 📄 setup.sh
-│   └── 📄 test_pipeline.py
-│
-├── 📄 README.md
-├── 📄 .gitignore
-└── 📄 LICENSE
-```
+Toutes les routes sont préfixées par `/api/v1`. Les routes protégées nécessitent le header `Authorization: Bearer <token>`.
 
----
+### Authentification
 
-## 📚 API Documentation
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `POST` | `/auth/register` | Non | Créer un compte |
+| `POST` | `/auth/login` | Non | Connexion, retourne un JWT |
 
-### Authentication
+### Traitement d'images / PDF
 
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `POST` | `/api/v1/auth/register` | Register new user |
-| `POST` | `/api/v1/auth/login` | Login user |
-
-### Processing
-
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `POST` | `/api/v1/process/image` | Process an image |
-| `POST` | `/api/v1/process/capture` | Capture and save note |
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `POST` | `/process/image` | Oui | Traiter une image (OCR + IA) |
+| `POST` | `/process/capture` | Oui | Capture complète (image → note sauvegardée) |
 
 ### Notes
 
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `GET` | `/api/v1/notes` | List user notes |
-| `GET` | `/api/v1/notes/{id}` | Get note details |
-| `PATCH` | `/api/v1/notes/{id}` | Update note |
-| `DELETE` | `/api/v1/notes/{id}` | Delete note |
-| `POST` | `/api/v1/notes/{id}/summary` | Generate summary |
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `GET` | `/notes` | Oui | Lister toutes les notes de l'utilisateur |
+| `GET` | `/notes/{note_id}` | Oui | Détail d'une note |
+| `PATCH` | `/notes/{note_id}` | Oui | Modifier une note |
+| `DELETE` | `/notes/{note_id}` | Oui | Supprimer une note |
+| `POST` | `/notes/{note_id}/summary` | Oui | Générer un résumé |
+| `GET` | `/notes/{note_id}/quizzes` | Oui | Lister les quiz d'une note |
+| `POST` | `/notes/{note_id}/quizzes` | Oui | Générer un nouveau quiz |
+| `GET` | `/notes/{note_id}/flashcards` | Oui | Lister les flashcards d'une note |
 
-### Quizzes
+### Quiz & Flashcards
 
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `GET` | `/api/v1/notes/{id}/quizzes` | Get note quizzes |
-| `POST` | `/api/v1/notes/{id}/quizzes` | Create quiz |
-| `POST` | `/api/v1/quizzes/{id}/submit` | Submit answers |
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `POST` | `/quizzes/{quiz_id}/submit` | Oui | Soumettre les réponses d'un quiz |
+| `POST` | `/flashcards/{card_id}/review` | Oui | Enregistrer une révision (SM-2, note 1-5) |
+| `GET` | `/flashcards/due` | Oui | Flashcards à réviser aujourd'hui |
 
-### Flashcards
+### Recherche & Utilisateur
 
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `GET` | `/api/v1/notes/{id}/flashcards` | Get flashcards |
-| `POST` | `/api/v1/flashcards/{id}/review` | Review card |
-| `GET` | `/api/v1/flashcards/due` | Get due cards |
-
-### User
-
-| Method | Endpoint | Description |
-|:-------|:---------|:------------|
-| `GET` | `/api/v1/user/me` | Get profile |
-| `GET` | `/api/v1/user/progress` | Get progress |
-| `GET` | `/api/v1/user/recommendations` | Get recommendations |
-| `GET` | `/api/v1/stats` | Get statistics |
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `POST` | `/search` | Oui | Recherche plein texte dans les notes |
+| `GET` | `/user/me` | Oui | Profil de l'utilisateur connecté |
+| `GET` | `/user/progress` | Oui | Statistiques de progression |
+| `GET` | `/user/recommendations` | Oui | Recommandations d'apprentissage adaptatif |
+| `GET` | `/subjects` | Non | Liste des matières disponibles |
+| `GET` | `/stats` | Non | Statistiques globales |
 
 ---
 
-## 🧪 Development
+## Modèles de données
 
-### Running Tests
+### Matières (`SubjectCategory`)
+`mathematics` · `physics` · `chemistry` · `biology` · `computer_science` · `engineering` · `economics` · `literature` · `history` · `philosophy` · `other`
 
-**Backend:**
+### Niveaux cognitifs (`CognitiveLevel`)
+`beginner` · `intermediate` · `advanced` · `expert`
+
+### Types de quiz (`QuizType`)
+`qcm` · `open_ended` · `fill_in_blank` · `matching`
+
+### Note (structure complète)
+
+```json
+{
+  "id": "string",
+  "user_id": "string",
+  "title": "string",
+  "subject": "mathematics",
+  "raw_text": "string",
+  "summary": "string | null",
+  "latex_formulas": [],
+  "processed_content": {
+    "title": "string",
+    "sections": [],
+    "definitions": [],
+    "examples": [],
+    "formulas": [],
+    "key_concepts": []
+  },
+  "cognitive_level": "intermediate",
+  "tags": [],
+  "quizzes": ["quiz_id_1"],
+  "flashcards": ["card_id_1"],
+  "original_image_url": "string",
+  "processing_metadata": {},
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z"
+}
+```
+
+### Flashcard (algorithme SM-2)
+
+```json
+{
+  "id": "string",
+  "note_id": "string",
+  "front": "string",
+  "back": "string",
+  "difficulty": "intermediate",
+  "tags": [],
+  "last_reviewed": "2026-01-01T00:00:00Z | null",
+  "next_review": "2026-01-01T00:00:00Z | null",
+  "review_count": 0,
+  "mastery_level": 0.0
+}
+```
+
+---
+
+## Pipeline de traitement
+
+```
+Image / PDF
+    │
+    ▼
+Prétraitement (OpenCV)
+  ├── Correction de perspective
+  └── Amélioration du contraste
+    │
+    ▼
+OCR (moteur sélectionné via OCR_ENGINE)
+  ├── PaddleOCR PP-OCRv5  ← défaut
+  ├── EasyOCR
+  ├── Tesseract
+  └── Fallback OpenAI Vision (si score < OCR_CONFIDENCE_THRESHOLD)
+    │
+    ▼
+Extraction LaTeX (pix2tex)
+    │
+    ▼
+Classification de matière (LLM)
+    │
+    ▼
+Structuration du contenu (LLM)
+  ├── Titre, sections, définitions
+  ├── Exemples, formules, concepts clés
+  └── Niveau cognitif estimé
+    │
+    ▼
+Indexation RAG (ChromaDB)
+  ├── Génération d'embeddings (OpenAI text-embedding-3-small)
+  └── Stockage vectoriel par utilisateur
+    │
+    ▼
+Génération de contenu pédagogique (LLM)
+  ├── Résumé adaptatif (brief / detailed / bullet_points / simplified)
+  ├── Quiz QCM (difficulté ajustée au niveau cognitif)
+  └── Flashcards avec planning de révision SM-2
+```
+
+---
+
+## Tests
 
 ```bash
 cd backend
 source venv/bin/activate
 
-# Run all tests
-pytest
+# Lancer tous les tests
+python3 -m pytest
 
-# With coverage
-pytest --cov=app
+# Avec rapport de couverture
+python3 -m pytest --cov=app
 
-# Specific tests
-pytest tests/test_auth.py
-pytest tests/test_processing.py -v
+# Verbose sur un fichier
+python3 -m pytest tests/test_security_and_integration.py -v
 ```
 
-**Frontend:**
+### Tests disponibles
+
+| Test | Description |
+|:-----|:-----------|
+| `test_pipeline_complete_flow` | Pipeline complet de traitement image |
+| `test_review_foreign_flashcard_returns_403` | Protection d'ownership des flashcards |
+| `test_review_own_flashcard_returns_200` | Révision d'une flashcard propriétaire |
+| `test_review_nonexistent_flashcard_returns_404` | Flashcard inexistante |
+| `test_register_without_mongodb_returns_503` | Inscription sans MongoDB → HTTP 503 |
+| `test_create_note_without_mongodb_returns_503` | Création de note sans MongoDB → HTTP 503 |
+| `test_service_unavailable_error_attributes` | Attributs de ServiceUnavailableError |
+| `test_mongodb_service_raises_when_disconnected` | MongoDB déconnecté → exception |
+
+**Important** : ne pas utiliser le fixture `authorized_client` (incompatibilité bcrypt/Python 3.13). Utiliser le fixture `_auth_client` local et mocker `app.api.routes.get_password_hash` dans les tests de routes qui hachent des mots de passe.
+
+---
+
+## Docker
+
+### Backend uniquement
 
 ```bash
-cd frontend
-npm test
+cd backend
+docker build -t aaca-backend .
+docker run -p 8000:8000 --env-file .env aaca-backend
 ```
 
-### Code Style
+Le Dockerfile installe automatiquement les langues Tesseract : `eng`, `fra`, `deu`, `spa`.
 
-- **Python**: Follow PEP 8 with `black` and `isort`
-- **TypeScript**: Use strict types and ESLint configuration
+### MongoDB via Docker
 
----
+```bash
+docker run -d \
+  --name mongodb-aaca \
+  -p 27017:27017 \
+  -v mongodb_aaca_data:/data/db \
+  --restart unless-stopped \
+  mongo:7.0
+```
 
-## 🤝 Contributing
-
-Contributions are welcome!
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit changes: `git commit -m "✨ Add my feature"`
-4. Push to branch: `git push origin feature/my-feature`
-5. Open a Pull Request
-
-### Guidelines
-
-- Write tests for new features
-- Update documentation
-- Follow existing code style
-- Use conventional commits
+Commandes utiles :
+```bash
+docker logs mongodb-aaca          # Voir les logs
+docker stop mongodb-aaca          # Arrêter
+docker start mongodb-aaca         # Redémarrer
+docker exec -it mongodb-aaca mongosh  # Connexion shell
+```
 
 ---
 
-## 📄 License
+## Variables d'environnement — référence complète
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+| Variable | Défaut | Description |
+|:---------|:-------|:-----------|
+| `SECRET_KEY` | — | Clé JWT (obligatoire en production) |
+| `ALGORITHM` | `HS256` | Algorithme JWT |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Durée de vie du token (minutes) |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Durée de vie du refresh token (jours) |
+| `MONGODB_URL` | `mongodb://localhost:27017` | URL de connexion MongoDB |
+| `DATABASE_NAME` | `aaca_db` | Nom de la base de données |
+| `OPENAI_API_KEY` | — | Clé API OpenAI |
+| `OPENAI_MODEL` | `gpt-4` | Modèle OpenAI à utiliser |
+| `GOOGLE_API_KEY` | — | Clé API Google Gemini |
+| `ANTHROPIC_API_KEY` | — | Clé API Anthropic |
+| `OCR_ENGINE` | `paddleocr` | Moteur OCR (`paddleocr`/`easyocr`/`tesseract`/`custom`) |
+| `OCR_CONFIDENCE_THRESHOLD` | `0.8` | Seuil avant fallback OpenAI Vision |
+| `CORS_ORIGINS` | localhost dev | Origines CORS autorisées (valeurs séparées par virgule) |
+| `ENABLE_LLM_CACHE` | `true` | Activer le cache des réponses LLM |
+| `LLM_CACHE_TTL` | `3600` | TTL du cache LLM (secondes) |
+| `MAX_UPLOAD_SIZE` | `10485760` | Taille max d'upload (10 MB) |
+| `UPLOAD_DIR` | `uploads` | Répertoire de stockage des images |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Modèle d'embeddings OpenAI |
+| `VECTOR_STORE_DIR` | `vector_store` | Répertoire de persistance ChromaDB |
+| `MAX_PROCESSING_TIME` | `30` | Timeout du pipeline de traitement (secondes) |
 
 ---
 
-## 🙏 Acknowledgments
+## Licence
 
-- [OpenAI](https://openai.com) for GPT models
-- [Google](https://ai.google) for Gemini
-- [EasyOCR](https://github.com/JaidedAI/EasyOCR) for OCR
-- [FastAPI](https://fastapi.tiangolo.com) for the backend framework
-- [Expo](https://expo.dev) for mobile development
-- [MongoDB](https://mongodb.com) for database
-
----
-
-<p align="center">
-  <b>Built with ❤️ for students and educators worldwide</b>
-</p>
-
-<p align="center">
-  <a href="https://github.com/your-account/aaca-project">⭐ Star this repo</a> if you find it useful!
-</p>
+MIT

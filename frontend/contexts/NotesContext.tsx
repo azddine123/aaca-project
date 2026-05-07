@@ -78,12 +78,15 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const fetchNote = async (id: string) => {
         if (!auth.token) return;
-        
+        setIsLoading(true);
         try {
             const res = await fetch(`${API_URL}/notes/${id}`, { headers: authHeaders() });
             if (res.ok) setCurrentNote(await res.json());
+            else setError('Note non trouvée');
         } catch (e: any) {
             setError(e.message);
+        } finally {
+            setIsLoading(false);
         }
     };
 

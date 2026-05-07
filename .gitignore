@@ -1,5 +1,9 @@
 # === Global Gitignore for AACA Project ===
 
+# Dependencies
+node_modules/
+package-lock.json
+
 # OS Files
 .DS_Store
 Thumbs.db

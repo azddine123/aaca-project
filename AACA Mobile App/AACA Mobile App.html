@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AACA — AI Academic Cognitive Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; font-family: "Plus Jakarta Sans", system-ui, sans-serif; }
+  #root { width: 100%; height: 100vh; }
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- design tokens + atoms -->
+  <script type="text/babel" src="tokens.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="shell.jsx"></script>
+
+  <!-- screens -->
+  <script type="text/babel" src="screens/home.jsx"></script>
+  <script type="text/babel" src="screens/notes.jsx"></script>
+  <script type="text/babel" src="screens/note-detail.jsx"></script>
+  <script type="text/babel" src="screens/study.jsx"></script>
+  <script type="text/babel" src="screens/capture.jsx"></script>
+  <script type="text/babel" src="screens/auth.jsx"></script>
+
+  <!-- design canvas -->
+  <script type="text/babel" src="design-canvas.jsx"></script>
+
+  <!-- App -->
+  <script type="text/babel">
+    function App() {
+      // No-op handlers — these are showcase artboards. Each artboard is a
+      // self-contained snapshot for the canvas; for an interactive run-through,
+      // open one in focus mode.
+      const noop = () => {};
+      return (
+        <DesignCanvas>
+          <DCSection id="aacaflow" title="AACA — Mobile App" subtitle="AI Academic Cognitive Assistant · Moroccan academic">
+            <DCArtboard id="splash"  label="00 · Splash"      width={390} height={800}>
+              <SplashScreen />
+            </DCArtboard>
+            <DCArtboard id="login"   label="01 · Login"       width={390} height={800}>
+              <LoginScreen />
+            </DCArtboard>
+            <DCArtboard id="register" label="02 · Register"   width={390} height={800}>
+              <RegisterScreen />
+            </DCArtboard>
+            <DCArtboard id="home"    label="03 · Home"        width={390} height={800}>
+              <HomeScreen onTab={noop} onOpenNote={noop} onOpenCapture={noop} />
+            </DCArtboard>
+            <DCArtboard id="notes"   label="04 · Notes"       width={390} height={800}>
+              <NotesScreen onTab={noop} onOpenNote={noop} onOpenCapture={noop} />
+            </DCArtboard>
+            <DCArtboard id="detail-summary"  label="05a · Note · Résumé"   width={390} height={800}>
+              <NoteDetailScreen noteId="n1" initialTab="Résumé" onBack={noop} onTab={noop} onOpenCapture={noop} onStudy={noop} />
+            </DCArtboard>
+            <DCArtboard id="detail-content"  label="05b · Note · Contenu"  width={390} height={800}>
+              <NoteDetailContentArtboard />
+            </DCArtboard>
+            <DCArtboard id="detail-study"    label="05c · Note · Étudier"  width={390} height={800}>
+              <NoteDetailStudyArtboard />
+            </DCArtboard>
+            <DCArtboard id="study-flash"  label="06a · Flashcard · Recto" width={390} height={800}>
+              <StudyScreen onBack={noop} onTab={noop} onOpenCapture={noop} />
+            </DCArtboard>
+            <DCArtboard id="study-flash-back"  label="06b · Flashcard · Verso (zellige)" width={390} height={800}>
+              <StudyFlippedArtboard />
+            </DCArtboard>
+            <DCArtboard id="study-quiz"  label="06c · QCM · Réponse" width={390} height={800}>
+              <StudyQuizArtboard />
+            </DCArtboard>
+            <DCArtboard id="capture" label="07 · Capture"     width={390} height={800}>
+              <CaptureScreen onBack={noop} onTab={noop} />
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    // Variant artboards — render the screens in pre-set states so the
+    // canvas shows finished shots without requiring user interaction.
+    function NoteDetailContentArtboard() {
+      // Forces the Contenu tab on first paint.
+      React.useEffect(() => {
+        const tabs = document.querySelectorAll('[data-board="content"] button');
+        tabs.forEach(b => { if (b.textContent === 'Contenu') b.click(); });
+      }, []);
+      return (
+        <div data-board="content" style={{ width: '100%', height: '100%' }}>
+          <NoteDetailScreen noteId="n2" onBack={()=>{}} onTab={()=>{}} onOpenCapture={()=>{}} onStudy={()=>{}} />
+        </div>
+      );
+    }
+    function NoteDetailStudyArtboard() {
+      React.useEffect(() => {
+        const tabs = document.querySelectorAll('[data-board="study-tab"] button');
+        tabs.forEach(b => { if (b.textContent === 'Étudier') b.click(); });
+      }, []);
+      return (
+        <div data-board="study-tab" style={{ width: '100%', height: '100%' }}>
+          <NoteDetailScreen noteId="n1" onBack={()=>{}} onTab={()=>{}} onOpenCapture={()=>{}} onStudy={()=>{}} />
+        </div>
+      );
+    }
+    function StudyFlippedArtboard() {
+      React.useEffect(() => {
+        // Flip the card on first paint so the artboard shows the back face
+        // (the zellige-patterned answer side).
+        setTimeout(() => {
+          const root = document.querySelector('[data-board="flipped"]');
+          if (!root) return;
+          const flipper = root.querySelector('[style*="perspective"]');
+          if (flipper) {
+            const inner = flipper.firstChild;
+            if (inner) inner.click();
+          }
+        }, 100);
+      }, []);
+      return (
+        <div data-board="flipped" style={{ width: '100%', height: '100%' }}>
+          <StudyScreen onBack={()=>{}} onTab={()=>{}} onOpenCapture={()=>{}} />
+        </div>
+      );
+    }
+    function StudyQuizArtboard() {
+      React.useEffect(() => {
+        const root = document.querySelector('[data-board="quiz"]');
+        if (!root) return;
+        // Switch to QCM mode
+        setTimeout(() => {
+          const qcmBtn = [...root.querySelectorAll('button')].find(b => b.textContent.includes('QCM'));
+          qcmBtn && qcmBtn.click();
+          // Pick the correct answer to show the explanation state
+          setTimeout(() => {
+            const opts = root.querySelectorAll('button[disabled], button:not([disabled])');
+            const target = [...root.querySelectorAll('button')].find(b => b.textContent && b.textContent.includes('ln(x) (Logarithme)'));
+            target && target.click();
+          }, 300);
+        }, 100);
+      }, []);
+      return (
+        <div data-board="quiz" style={{ width: '100%', height: '100%' }}>
+          <StudyScreen onBack={()=>{}} onTab={()=>{}} onOpenCapture={()=>{}} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

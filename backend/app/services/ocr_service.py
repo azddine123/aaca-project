@@ -47,7 +47,10 @@ class OCRService:
         If the primary engine returns a confidence score below OCR_CONFIDENCE_THRESHOLD,
         automatically falls back to OpenAI Vision for improved accuracy.
         """
-        if self.engine == "paddleocr":
+        if self.engine == "custom":
+            from app.services.custom_ocr_service import custom_ocr_service
+            result = await custom_ocr_service.extract_text(image_bytes, detect_formulas)
+        elif self.engine == "paddleocr":
             from app.services.paddle_ocr_service import paddle_ocr_service
             result = await paddle_ocr_service.extract_text(image_bytes, detect_formulas)
         elif self.engine == "easyocr":
