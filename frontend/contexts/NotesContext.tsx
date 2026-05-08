@@ -9,6 +9,26 @@ import { useAuth } from './AuthContext';
 import { API_URL } from '../config/api';
 
 // Types
+export interface NoteFormula {
+    latex: string;
+    description?: string;
+}
+
+export interface NoteSection {
+    title?: string;
+    content: string;
+    level?: number;
+}
+
+export interface StructuredContent {
+    title: string;
+    sections: NoteSection[];
+    definitions: { term: string; definition: string }[];
+    examples: string[];
+    formulas: NoteFormula[];
+    key_concepts: string[];
+}
+
 export interface Note {
     id: string;
     title: string;
@@ -18,6 +38,8 @@ export interface Note {
     summary?: string;
     created_at: string;
     thumbnail_url?: string;
+    processed_content?: StructuredContent;
+    latex_formulas?: { latex: string; description?: string }[];
 }
 
 interface NotesContextType {
@@ -48,23 +70,26 @@ export const useNotes = () => useContext(NotesContext);
 
 // Provider
 export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { auth } = useAuth();
+    const { auth, authFetch } = useAuth();
     const [notes, setNotes] = useState<Note[]>([]);
     const [currentNote, setCurrentNote] = useState<Note | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const authHeaders = (): Record<string, string> => ({
-        'Authorization': `Bearer ${auth.token}`,
-        'Content-Type': 'application/json',
-    });
+    // Clear notes when user changes (token change = different user)
+    useEffect(() => {
+        if (!auth.isAuthenticated) {
+            setNotes([]);
+            setCurrentNote(null);
+        }
+    }, [auth.isAuthenticated]);
 
     const fetchNotes = useCallback(async () => {
         if (!auth.token) return;
         setIsLoading(true);
-        
+
         try {
-            const res = await fetch(`${API_URL}/notes`, { headers: authHeaders() });
+            const res = await authFetch(`${API_URL}/notes`);
             if (res.ok) {
                 const data = await res.json();
                 setNotes(data);
@@ -74,13 +99,13 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } finally {
             setIsLoading(false);
         }
-    }, [auth.token]);
+    }, [auth.token, authFetch]);
 
     const fetchNote = useCallback(async (id: string) => {
         if (!auth.token) return;
         setIsLoading(true);
         try {
-            const res = await fetch(`${API_URL}/notes/${id}`, { headers: authHeaders() });
+            const res = await authFetch(`${API_URL}/notes/${id}`);
             if (res.ok) setCurrentNote(await res.json());
             else setError('Note non trouvée');
         } catch (e: any) {
@@ -88,33 +113,30 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } finally {
             setIsLoading(false);
         }
-    }, [auth.token]);
+    }, [auth.token, authFetch]);
 
     const deleteNote = useCallback(async (id: string) => {
         if (!auth.token) return;
-        
+
         try {
-            const res = await fetch(`${API_URL}/notes/${id}`, { 
-                method: 'DELETE', 
-                headers: authHeaders() 
-            });
+            const res = await authFetch(`${API_URL}/notes/${id}`, { method: 'DELETE' });
             if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
             setNotes(prev => prev.filter(n => n.id !== id));
         } catch (e: any) {
             setError(e.message);
         }
-    }, [auth.token]);
+    }, [auth.token, authFetch]);
 
     const searchNotes = useCallback(async (query: string) => {
         if (!auth.token) return;
-        
+
         try {
-            const res = await fetch(`${API_URL}/search`, {
+            const res = await authFetch(`${API_URL}/search`, {
                 method: 'POST',
-                headers: authHeaders(),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query }),
             });
-            
+
             if (res.ok) {
                 const data = await res.json();
                 setNotes(data.notes || []);
@@ -122,7 +144,7 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch (e: any) {
             setError(e.message);
         }
-    }, [auth.token]);
+    }, [auth.token, authFetch]);
 
     // Auto-fetch notes when authenticated
     useEffect(() => {

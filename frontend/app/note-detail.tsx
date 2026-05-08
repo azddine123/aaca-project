@@ -8,6 +8,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNotes } from '@/contexts/NotesContext';
 import { useStudy } from '@/contexts/StudyContext';
+import NoteContentView from '@/components/NoteContentView';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { API_URL } from '@/config/api';
@@ -158,10 +159,12 @@ export default function NoteDetailScreen() {
 
                 {/* CONTENU */}
                 {activeTab === 'contenu' && (
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Texte extrait</Text>
-                        <Text style={styles.monoText}>{currentNote.raw_text}</Text>
-                    </View>
+                    <NoteContentView
+                        raw_text={currentNote.raw_text}
+                        processed_content={(currentNote as any).processed_content}
+                        latex_formulas={(currentNote as any).latex_formulas}
+                        C={C}
+                    />
                 )}
 
                 {/* ÉTUDIER */}
