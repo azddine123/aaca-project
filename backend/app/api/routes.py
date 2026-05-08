@@ -1,4 +1,5 @@
 
+
 """API Routes for AI Academic Cognitive Assistant."""
 
 import logging
@@ -439,6 +440,7 @@ async def generate_quiz(
     quiz_data["user_id"] = current_user
 
     quiz_id = await mongodb_service.create_quiz(quiz_data)
+    quiz_data.pop("_id", None)  # ObjectId ajouté par MongoDB, non sérialisable par Pydantic
 
     return {**quiz_data, "id": quiz_id}
 
@@ -529,7 +531,7 @@ async def get_flashcards(
     """Get flashcards for a note."""
     await _get_owned_note(note_id, current_user)
 
-    flashcards = await mongodb_service.get_flashcards(note_id=note_id)
+    flashcards = await mongodb_service.get_flashcards(note_id=note_id, user_id=current_user)
     return [Flashcard(**f) for f in flashcards]
 
 

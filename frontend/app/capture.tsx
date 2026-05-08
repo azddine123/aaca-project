@@ -9,6 +9,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotes } from '@/contexts/NotesContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
 import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
@@ -57,6 +58,7 @@ function StepIndicator({ step, C }: { step: Step; C: any }) {
 
 export default function CaptureScreen() {
     const { auth, authFetch } = useAuth();
+    const { fetchNotes } = useNotes();
     const C = useAppColors();
     const styles = useMemo(() => makeStyles(C), [C]);
 
@@ -113,6 +115,7 @@ export default function CaptureScreen() {
             }
             setResult(await res.json());
             setStep('done');
+            fetchNotes();
         } catch (e: any) {
             setErrorMsg(e.message || "Impossible de traiter l'image");
             setStep('error');

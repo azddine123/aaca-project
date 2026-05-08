@@ -260,11 +260,11 @@ class LLMService:
 Return the result as a valid JSON object with this exact structure:
 {
     "title": "string",
-    "sections": [{"heading": "string", "content": "string"}],
+    "sections": [{"title": "string", "content": "string"}],
     "definitions": [{"term": "string", "definition": "string"}],
     "examples": ["string"],
     "key_concepts": ["string"],
-    "formulas": [{"original": "string", "description": "string"}],
+    "formulas": [{"latex": "string", "description": "string"}],
     "subject_category": "mathematics|physics|chemistry|biology|cs|engineering|economics|literature|history|philosophy|other"
 }"""
 
@@ -285,7 +285,7 @@ Return the result as a valid JSON object with this exact structure:
             logger.error(f"Failed to parse JSON response: {response['content'][:200]}")
             return {
                 "title": "Untitled",
-                "sections": [{"heading": "Content", "content": raw_text}],
+                "sections": [{"title": "Content", "content": raw_text}],
                 "definitions": [],
                 "examples": [],
                 "key_concepts": [],
