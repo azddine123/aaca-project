@@ -1,6 +1,6 @@
 import { registerRootComponent } from 'expo';
 import { ExpoRoot } from 'expo-router';
-import AppearanceProvider from './app/contexts/AppearanceContext';
+import AppearanceProvider from './contexts/AppearanceContext';
 
 export default function App() {
     return (

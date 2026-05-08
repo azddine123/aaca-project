@@ -10,10 +10,12 @@ from typing import Any
 import aiofiles
 from fastapi import UploadFile
 
+from app.core.config import settings
+
 STORAGE_DIR = Path(__file__).parent.parent.parent / "uploads"
 STORAGE_DIR.mkdir(exist_ok=True)
 
-BASE_URL = "http://localhost:8000/uploads"
+BASE_URL = f"{settings.PUBLIC_BASE_URL}/uploads"
 
 
 class LocalStorageService:

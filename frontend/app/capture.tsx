@@ -16,6 +16,11 @@ import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 type Step = 'idle' | 'processing' | 'done' | 'error';
 const STEPS = ['Sélection', 'Analyse IA', 'Résultat'];
 
+interface ProcessResult {
+    note_id: string; quiz_id?: string; flashcards_count: number;
+    processing_time: number; detected_subject?: string; title: string;
+}
+
 function StepIndicator({ step, C }: { step: Step; C: any }) {
     const active = step === 'idle' ? 0 : step === 'processing' ? 1 : 2;
     return (
@@ -57,7 +62,7 @@ export default function CaptureScreen() {
 
     const [step, setStep] = useState<Step>('idle');
     const [preview, setPreview] = useState<string | null>(null);
-    const [result, setResult] = useState<any | null>(null);
+    const [result, setResult] = useState<ProcessResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
 
     const pickImage = async (fromCamera: boolean) => {
@@ -93,13 +98,13 @@ export default function CaptureScreen() {
     };
 
     const processImage = async (uri: string) => {
+        if (step === 'processing') return;
         setStep('processing');
         try {
             const form = new FormData();
             form.append('file', { uri, name: 'capture.jpg', type: 'image/jpeg' } as any);
             const res = await authFetch(`${API_URL}/process/capture`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${auth.token}` },
                 body: form,
             });
             if (!res.ok) {

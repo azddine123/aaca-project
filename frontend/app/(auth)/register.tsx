@@ -53,7 +53,10 @@ export default function RegisterScreen() {
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.detail || "Erreur lors de l'inscription");
+                const detail = Array.isArray(data.detail)
+                    ? data.detail.map((e: any) => e.msg).join(', ')
+                    : data.detail;
+                throw new Error(detail || "Erreur lors de l'inscription");
             }
             await login(email.trim(), password);
             router.replace('/(tabs)/home');

@@ -27,7 +27,7 @@ class SubjectClassifier:
                 "gravity", "electric", "magnetic", "quantum", "relativity", "thermodynamics",
                 "optics", "mechanics", "wave", "particle", "field", "potential",
                 "Newton", "Einstein", "Maxwell", "Schrödinger", "Heisenberg",
-                "Joule", "Watt", "Newton", "Pascal", "Hertz", "Ohm",
+                "Joule", "Watt", "Pascal", "Hertz", "Ohm",
             ],
             "formulas": [r"kg\s*/?\s*m", r"J\s*=", r"N\s*=", r"W\s*=", r"V\s*=", r"A\s*="],
         },
@@ -147,7 +147,7 @@ class SubjectClassifier:
         best_subject = scores.most_common(1)[0][0]
         total_score = sum(scores.values())
         confidence = scores[best_subject] / total_score if total_score > 0 else 0
-        confidence = min(confidence * 2, 1.0)
+        confidence = min(confidence, 1.0)
 
         return best_subject, confidence
 

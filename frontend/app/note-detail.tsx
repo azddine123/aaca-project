@@ -21,7 +21,7 @@ export default function NoteDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const { currentNote, fetchNote, isLoading } = useNotes();
     const { setCurrentQuiz, setCurrentFlashcards } = useStudy();
-    const { auth } = useAuth();
+    const { auth, authFetch } = useAuth();
     const C = useAppColors();
     const G = useAppGradients();
     const styles = useMemo(() => makeStyles(C), [C]);
@@ -30,15 +30,14 @@ export default function NoteDetailScreen() {
     const [loadingQuiz, setLoadingQuiz] = useState(false);
     const [loadingCards, setLoadingCards] = useState(false);
 
-    useEffect(() => { if (id) fetchNote(id); }, [id]);
+    useEffect(() => { if (id) fetchNote(id); }, [id, fetchNote]);
 
     const handleGenerateQuiz = async () => {
         if (!id || !auth.token) return;
         try {
             setLoadingQuiz(true);
-            const res = await fetch(`${API_URL}/notes/${id}/quizzes`, {
+            const res = await authFetch(`${API_URL}/notes/${id}/quizzes`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${auth.token}` },
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
@@ -52,8 +51,9 @@ export default function NoteDetailScreen() {
             }
             setCurrentQuiz(quiz);
             router.push('/(tabs)/study');
-        } catch (e: any) {
-            Alert.alert('Erreur réseau', e.message || 'Impossible de contacter le serveur.');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Erreur génération quiz';
+            Alert.alert('Erreur', msg);
         } finally { setLoadingQuiz(false); }
     };
 
@@ -61,9 +61,7 @@ export default function NoteDetailScreen() {
         if (!id || !auth.token) return;
         try {
             setLoadingCards(true);
-            const res = await fetch(`${API_URL}/notes/${id}/flashcards`, {
-                headers: { Authorization: `Bearer ${auth.token}` },
-            });
+            const res = await authFetch(`${API_URL}/notes/${id}/flashcards`);
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 Alert.alert('Erreur', err.detail || 'Impossible de charger les flashcards.');
@@ -76,8 +74,9 @@ export default function NoteDetailScreen() {
             }
             setCurrentFlashcards(cards);
             router.push('/(tabs)/study');
-        } catch (e: any) {
-            Alert.alert('Erreur réseau', e.message || 'Impossible de contacter le serveur.');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Erreur chargement flashcards';
+            Alert.alert('Erreur', msg);
         } finally { setLoadingCards(false); }
     };
 

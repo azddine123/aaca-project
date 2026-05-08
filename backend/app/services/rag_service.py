@@ -256,10 +256,12 @@ class RAGService:
         parts: list[str] = []
         total = 0
         for i, chunk in enumerate(chunks, 1):
-            text = chunk["text"]
+            text = chunk.get("text", "").strip()
+            if not text:
+                continue
             if total + len(text) > max_chars:
                 break
-            parts.append(f"[Passage {i} — score {chunk['score']:.2f}]\n{text}")
+            parts.append(f"[Passage {i} — score {chunk.get('score', 0):.2f}]\n{text}")
             total += len(text)
         return "\n\n".join(parts)
 

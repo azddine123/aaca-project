@@ -8,13 +8,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, FileResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-from app.api.routes import router
+from app.api.routes import router, limiter
 from app.core.config import settings
+from app.core.security import get_current_user
 from app.core.exceptions import ServiceUnavailableError
 from app.core.logging import setup_logging
 
@@ -37,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         if mongodb_service.db is not None:
             logger.info("✅ MongoDB connected")
+            await mongodb_service._create_indexes()
         else:
             logger.warning("⚠️ MongoDB not connected - Running in 'mock' mode")
             logger.info("   To start MongoDB: docker run -d -p 27017:27017 mongo:7.0")
@@ -56,9 +59,21 @@ app = FastAPI(
     description="Transform academic captures into intelligent learning resources",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 @app.exception_handler(ServiceUnavailableError)
 async def service_unavailable_handler(request: Request, exc: ServiceUnavailableError) -> JSONResponse:
@@ -78,8 +93,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for uploads
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+@app.get("/uploads/{user_id}/{note_id}/{filename}")
+async def serve_upload(
+    user_id: str,
+    note_id: str,
+    filename: str,
+    current_user: str = Depends(get_current_user),
+):
+    if current_user != user_id:
+        raise HTTPException(403, "Access denied")
+    file_path = UPLOAD_DIR / user_id / note_id / filename
+    if not file_path.exists():
+        raise HTTPException(404, "File not found")
+    return FileResponse(file_path)
 
 # Include API routes
 app.include_router(router, prefix=settings.API_V1_STR)
