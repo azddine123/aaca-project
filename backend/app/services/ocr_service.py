@@ -21,6 +21,7 @@ class OCRService:
     def __init__(self) -> None:
         self.engine = settings.OCR_ENGINE
         self._easyocr_reader = None
+        self._openai_client = None
         self._tesseract_available = False
 
     def _get_easyocr_reader(self) -> Any:
@@ -47,7 +48,9 @@ class OCRService:
         If the primary engine returns a confidence score below OCR_CONFIDENCE_THRESHOLD,
         automatically falls back to OpenAI Vision for improved accuracy.
         """
-        if self.engine == "custom":
+        if self.engine == "openai_vision":
+            result = await self._extract_with_openai_vision(image_bytes, detect_formulas)
+        elif self.engine == "custom":
             from app.services.custom_ocr_service import custom_ocr_service
             result = await custom_ocr_service.extract_text(image_bytes, detect_formulas)
         elif self.engine == "paddleocr":
@@ -85,7 +88,9 @@ class OCRService:
         if not settings.OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY is not configured")
 
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        if self._openai_client is None:
+            self._openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            
         b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         prompt = (
@@ -93,7 +98,7 @@ class OCRService:
             "If mathematical formulas are present, write them in LaTeX notation."
         )
 
-        response = await client.chat.completions.create(
+        response = await self._openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {

@@ -22,17 +22,16 @@ class LLMCache:
         self.ttl = ttl
 
     @staticmethod
-    def _generate_key(prompt: str, model: str) -> str:
+    def _generate_key(key_data: str) -> str:
         """Generate cache key from prompt."""
-        key_data = f"{model}:{prompt}"
-        return hashlib.md5(key_data.encode()).hexdigest()
+        return hashlib.sha256(key_data.encode()).hexdigest()
 
-    def get(self, prompt: str, model: str) -> dict | None:
+    def get(self, cache_key: str) -> dict | None:
         """Get cached response if not expired."""
         if not settings.ENABLE_LLM_CACHE:
             return None
 
-        key = self._generate_key(prompt, model)
+        key = self._generate_key(cache_key)
         if key in self.cache:
             entry = self.cache[key]
             if (datetime.now() - entry["timestamp"]).seconds < self.ttl:
@@ -41,12 +40,12 @@ class LLMCache:
             del self.cache[key]
         return None
 
-    def set(self, prompt: str, model: str, response: dict) -> None:
+    def set(self, cache_key: str, response: dict) -> None:
         """Cache a response."""
         if not settings.ENABLE_LLM_CACHE:
             return
 
-        key = self._generate_key(prompt, model)
+        key = self._generate_key(cache_key)
         self.cache[key] = {
             "response": response,
             "timestamp": datetime.now(),
@@ -107,27 +106,40 @@ class LLMService:
         response_format: str | None = None,
     ) -> dict[str, Any]:
         """Call LLM with appropriate provider."""
-        cache_key = f"{prompt}:{system_prompt}:{temperature}"
-        cached = self.cache.get(cache_key, self.provider)
+        cache_key = f"{self.provider}:{prompt}:{system_prompt}:{temperature}"
+        cached = self.cache.get(cache_key)
         if cached:
             return cached
 
-        response = None
+        max_retries = 3
+        base_delay = 1.0
 
-        if self.provider == "openai":
-            response = await self._call_openai(
-                prompt, system_prompt, temperature, max_tokens, response_format
-            )
-        elif self.provider == "google":
-            response = await self._call_google(prompt, system_prompt, temperature, max_tokens)
-        elif self.provider == "anthropic":
-            response = await self._call_anthropic(prompt, system_prompt, temperature, max_tokens)
-        else:
-            logger.warning("⚠️ No LLM provider configured — returning stub response")
-            return {"content": "", "model": "none", "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+        for attempt in range(max_retries):
+            try:
+                response = None
 
-        self.cache.set(cache_key, self.provider, response)
-        return response
+                if self.provider == "openai":
+                    response = await self._call_openai(
+                        prompt, system_prompt, temperature, max_tokens, response_format
+                    )
+                elif self.provider == "google":
+                    response = await self._call_google(prompt, system_prompt, temperature, max_tokens)
+                elif self.provider == "anthropic":
+                    response = await self._call_anthropic(prompt, system_prompt, temperature, max_tokens)
+                else:
+                    logger.warning("⚠️ No LLM provider configured — returning stub response")
+                    return {"content": "", "model": "none", "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+
+                self.cache.set(cache_key, response)
+                return response
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"LLM call failed after {max_retries} attempts: {e}")
+                    raise
+                import asyncio
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"LLM call failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay}s...")
+                await asyncio.sleep(delay)
 
     async def _call_openai(
         self,
@@ -178,7 +190,7 @@ class LLMService:
 
         genai = self._get_google_client()
 
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
 
         response = await asyncio.to_thread(
@@ -192,7 +204,7 @@ class LLMService:
 
         return {
             "content": response.text,
-            "model": "gemini-pro",
+            "model": "gemini-1.5-flash",
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }
 

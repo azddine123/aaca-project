@@ -19,9 +19,11 @@ class Settings(BaseSettings):
     # API Configuration
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "AI Academic Cognitive Assistant"
+    DEBUG: bool = False
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     # Security
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -47,6 +49,8 @@ class Settings(BaseSettings):
     ENABLE_LLM_CACHE: bool = True
     LLM_CACHE_TTL: int = 3600  # 1 hour
     MAX_PROCESSING_TIME: int = 30  # seconds
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"
 
     # Embeddings & Vector Store
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # OpenAI embedding model
@@ -59,6 +63,13 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:8080",
     ]
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if len(v) < 32 or v == "your-secret-key-change-in-production":
+            raise ValueError("SECRET_KEY must be at least 32 characters and not the default value")
+        return v
 
     @property
     def CORS_ORIGINS(self) -> list[str]:

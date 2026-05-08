@@ -29,6 +29,22 @@ class ImageProcessor:
 
         Returns processed image and metadata.
         """
+        import asyncio
+        return await asyncio.to_thread(
+            self._preprocess_sync,
+            image_bytes,
+            perspective_correction,
+            enhance_contrast,
+            denoise,
+        )
+
+    def _preprocess_sync(
+        self,
+        image_bytes: bytes,
+        perspective_correction: bool = True,
+        enhance_contrast: bool = True,
+        denoise: bool = True,
+    ) -> tuple[bytes, dict]:
         nparr = np.frombuffer(image_bytes, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -154,7 +170,12 @@ class ImageProcessor:
         )
 
     @staticmethod
-    def detect_formula_regions(image_bytes: bytes) -> list[dict]:
+    async def detect_formula_regions(image_bytes: bytes) -> list[dict]:
+        import asyncio
+        return await asyncio.to_thread(ImageProcessor._detect_formula_regions_sync, image_bytes)
+
+    @staticmethod
+    def _detect_formula_regions_sync(image_bytes: bytes) -> list[dict]:
         """Detect potential mathematical formula regions."""
         nparr = np.frombuffer(image_bytes, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)

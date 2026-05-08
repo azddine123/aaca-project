@@ -34,6 +34,7 @@ pdf2image==1.17.0
 
 # Database
 # Option 1: MongoDB (RECOMMENDED - local, no config needed)
+motor==3.3.2
 pymongo==4.6.1
 
 # Option 2: Firebase (requires credentials.json)
@@ -55,8 +56,8 @@ email-validator==2.1.0
 # Utilities
 python-dateutil==2.8.2
 httpx==0.26.0
-aiofiles==23.2.1
-
+slowapi==0.1.9
+colorama==0.4.6
 # Testing
 pytest==7.4.4
 pytest-asyncio==0.23.3

@@ -5,7 +5,7 @@
  * Uses SecureStore for native platforms and localStorage for web.
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { API_URL } from '../config/api';
@@ -145,24 +145,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (data.refresh_token) {
                 await storage.setItem('aaca_refresh_token', data.refresh_token);
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Login failed';
             setAuth(prev => ({ 
                 ...prev, 
                 loading: false, 
-                error: err.message, 
+                error: message, 
                 isAuthenticated: false 
             }));
             throw err;
         }
-    };
-
-    // Wrapper fetch qui déconnecte automatiquement sur 401
-    const authFetch = async (input: RequestInfo, init?: RequestInit): Promise<Response> => {
-        const res = await fetch(input, init);
-        if (res.status === 401) {
-            await logout();
-        }
-        return res;
     };
 
     const logout = async () => {
@@ -170,17 +162,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await storage.deleteItem('aaca_username');
         await storage.deleteItem('aaca_email');
         await storage.deleteItem('aaca_refresh_token');
-        
-        setAuth({ 
-            token: null, 
-            refreshToken: null, 
-            isAuthenticated: false, 
-            userName: null, 
-            userEmail: null, 
-            loading: false, 
-            error: null 
+
+        setAuth({
+            token: null,
+            refreshToken: null,
+            isAuthenticated: false,
+            userName: null,
+            userEmail: null,
+            loading: false,
+            error: null
         });
     };
+
+    const authFetch = useCallback(async (
+        input: RequestInfo,
+        init: RequestInit = {}
+    ): Promise<Response> => {
+        const buildHeaders = (token: string | null) => {
+            const h = new Headers(init.headers);
+            if (token) h.set('Authorization', `Bearer ${token}`);
+            return h;
+        };
+
+        let res = await fetch(input, { ...init, headers: buildHeaders(auth.token) });
+
+        if (res.status === 401) {
+            // Tenter refresh
+            const storedRefresh = await storage.getItem('aaca_refresh_token');
+            if (storedRefresh) {
+                try {
+                    const refreshRes = await fetch(`${API_URL}/auth/refresh`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refresh_token: storedRefresh }),
+                    });
+                    if (refreshRes.ok) {
+                        const { access_token } = await refreshRes.json();
+                        await storage.setItem('aaca_token', access_token);
+                        setAuth(prev => ({ ...prev, token: access_token }));
+                        res = await fetch(input, {
+                            ...init,
+                            headers: buildHeaders(access_token)
+                        });
+                        return res;
+                    }
+                } catch { /* refresh failed */ }
+            }
+            await logout();
+        }
+        return res;
+    }, [auth.token, logout]);
 
     return (
         <AuthContext.Provider value={{ auth, login, logout, authFetch }}>

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 
 # =============================================================================
@@ -48,14 +48,14 @@ class QuizType(str, Enum):
 
 class UserBase(BaseModel):
     """Base user model."""
-    email: str
+    email: EmailStr
     full_name: str
     institution: str | None = None
 
 
 class UserCreate(UserBase):
     """User registration model."""
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class User(UserBase):
@@ -67,6 +67,15 @@ class User(UserBase):
     updated_at: datetime
     is_active: bool = True
     is_premium: bool = False
+
+
+class UserUpdateSchema(BaseModel):
+    full_name: str | None = Field(None, min_length=1, max_length=100)
+    institution: str | None = Field(None, max_length=200)
+
+class PasswordChangeSchema(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
 
 
 class UserProgress(BaseModel):
@@ -122,7 +131,7 @@ class SummaryRequest(BaseModel):
     content_id: str
     summary_type: Literal["brief", "detailed", "bullet_points", "simplified"] = "detailed"
     target_level: CognitiveLevel | None = None
-    max_length: int = 500
+    max_length: int = Field(500, ge=50, le=5000)
 
 
 class SummaryResponse(BaseModel):
@@ -166,7 +175,7 @@ class QuizAnswer(BaseModel):
     """Single quiz answer submission."""
     question_id: str
     answer: str
-    time_spent: int
+    time_spent: int = Field(..., ge=0, le=3600)
 
 
 class QuizSubmission(BaseModel):

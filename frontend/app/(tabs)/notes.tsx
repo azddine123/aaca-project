@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
     View, Text, FlatList, StyleSheet,
     TouchableOpacity, TextInput, RefreshControl, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNotes } from '@/contexts/NotesContext';
+import { useNotes, Note } from '@/contexts/NotesContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
 import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 import { formatDistanceToNow } from 'date-fns';
@@ -38,16 +38,24 @@ export default function NotesScreen() {
     const [query, setQuery] = useState('');
     const [activeFilter, setActiveFilter] = useState('all');
 
+    const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
     const handleSearch = (text: string) => {
         setQuery(text);
-        if (text.length > 2) searchNotes(text);
-        else if (text.length === 0) fetchNotes();
+        clearTimeout(searchTimeout.current);
+        if (text.length > 2) {
+            searchTimeout.current = setTimeout(() => searchNotes(text), 400);
+        } else if (text.length === 0) {
+            fetchNotes();
+        }
     };
 
     const clearSearch = () => { setQuery(''); fetchNotes(); };
 
-    const filteredNotes = activeFilter === 'all' ? notes : notes.filter((n: any) => n.subject === activeFilter);
-    const subjectsWithNotes = ['all', ...Array.from(new Set(notes.map((n: any) => n.subject).filter(Boolean))) as string[]];
+    const filteredNotes = activeFilter === 'all' ? notes : notes.filter((n: Note) => n.subject === activeFilter);
+    const subjectsWithNotes = useMemo(() => 
+        ['all', ...Array.from(new Set(notes.map((n: Note) => n.subject).filter(Boolean)))],
+        [notes]
+    );
 
     return (
         <View style={styles.container}>
@@ -117,7 +125,7 @@ export default function NotesScreen() {
                         </Text>
                     </View>
                 }
-                renderItem={({ item }: any) => {
+                renderItem={({ item }: { item: Note }) => {
                     const color = SUBJECT_COLORS[item.subject] || C.primary;
                     return (
                         <TouchableOpacity

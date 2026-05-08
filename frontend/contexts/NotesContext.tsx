@@ -9,7 +9,7 @@ import { useAuth } from './AuthContext';
 import { API_URL } from '../config/api';
 
 // Types
-interface Note {
+export interface Note {
     id: string;
     title: string;
     subject: string;
@@ -54,7 +54,7 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const authHeaders = () => ({
+    const authHeaders = (): Record<string, string> => ({
         'Authorization': `Bearer ${auth.token}`,
         'Content-Type': 'application/json',
     });
@@ -76,7 +76,7 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     }, [auth.token]);
 
-    const fetchNote = async (id: string) => {
+    const fetchNote = useCallback(async (id: string) => {
         if (!auth.token) return;
         setIsLoading(true);
         try {
@@ -88,23 +88,24 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [auth.token]);
 
-    const deleteNote = async (id: string) => {
+    const deleteNote = useCallback(async (id: string) => {
         if (!auth.token) return;
         
         try {
-            await fetch(`${API_URL}/notes/${id}`, { 
+            const res = await fetch(`${API_URL}/notes/${id}`, { 
                 method: 'DELETE', 
                 headers: authHeaders() 
             });
+            if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
             setNotes(prev => prev.filter(n => n.id !== id));
         } catch (e: any) {
             setError(e.message);
         }
-    };
+    }, [auth.token]);
 
-    const searchNotes = async (query: string) => {
+    const searchNotes = useCallback(async (query: string) => {
         if (!auth.token) return;
         
         try {
@@ -121,7 +122,7 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch (e: any) {
             setError(e.message);
         }
-    };
+    }, [auth.token]);
 
     // Auto-fetch notes when authenticated
     useEffect(() => {

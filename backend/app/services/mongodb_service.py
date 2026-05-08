@@ -8,10 +8,10 @@ from datetime import datetime
 from typing import Any
 
 from bson import ObjectId
-from gridfs import GridFS, NoFile
-from pymongo import ASCENDING, DESCENDING, MongoClient
-from pymongo.collection import Collection
-from pymongo.database import Database
+from bson.errors import InvalidId
+from gridfs.errors import NoFile
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from pymongo import ASCENDING, DESCENDING
 
 from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
@@ -34,41 +34,43 @@ class MongoDBService:
     """MongoDB service for data persistence."""
 
     def __init__(self) -> None:
-        self.client: MongoClient | None = None
-        self.db: Database | None = None
-        self.gridfs: GridFS | None = None
+        self.client: AsyncIOMotorClient | None = None
+        self.db = None
+        self.gridfs: AsyncIOMotorGridFSBucket | None = None
         self._connect()
 
     def _connect(self) -> None:
         """Connect to MongoDB."""
         try:
-            self.client = MongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
+            self.client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
             self.db = self.client[settings.DATABASE_NAME]
-            self.client.admin.command("ping")
-            self.gridfs = GridFS(self.db)
+            self.gridfs = AsyncIOMotorGridFSBucket(self.db)
             logger.info("✅ Connexion MongoDB réussie")
-            self._create_indexes()
         except Exception as e:
             logger.error(f"❌ Erreur connexion MongoDB: {e}")
             logger.warning("⚠️ Utilisation du mode 'mock' - données non persistantes")
             self.client = None
             self.db = None
 
-    def _create_indexes(self) -> None:
+    async def _create_indexes(self) -> None:
         """Create indexes for query optimization."""
         if self.db is None:
             return
 
-        self.db.users.create_index("email", unique=True)
-        self.db.notes.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
-        self.db.notes.create_index("subject")
-        self.db.quizzes.create_index("note_id")
-        self.db.quizzes.create_index("user_id")
-        self.db.flashcards.create_index("note_id")
-        self.db.flashcards.create_index([("user_id", ASCENDING), ("next_review", ASCENDING)])
+        await self.db.users.create_index("email", unique=True)
+        await self.db.notes.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+        await self.db.notes.create_index("subject")
+        await self.db.notes.create_index(
+            [("title", "text"), ("raw_text", "text")],
+            default_language="french",
+        )
+        await self.db.quizzes.create_index("note_id")
+        await self.db.quizzes.create_index("user_id")
+        await self.db.flashcards.create_index("note_id")
+        await self.db.flashcards.create_index([("user_id", ASCENDING), ("next_review", ASCENDING)])
         logger.info("✅ Index MongoDB créés")
 
-    def _get_collection(self, name: str) -> Collection | None:
+    def _get_collection(self, name: str):
         """Get a collection by name."""
         if self.db is None:
             return None
@@ -92,17 +94,21 @@ class MongoDBService:
         user_data["created_at"] = datetime.now()
         user_data["updated_at"] = datetime.now()
 
-        collection.insert_one(user_data)
+        await collection.insert_one(user_data)
         return user_data["id"]
 
     async def get_user(self, user_id: str) -> dict[str, Any] | None:
         """Get user by ID."""
         collection = self._get_collection("users")
-
         if collection is None:
             return None
 
-        user = collection.find_one({"_id": ObjectId(user_id)})
+        try:
+            oid = ObjectId(user_id)
+        except InvalidId:
+            return None
+
+        user = await collection.find_one({"_id": oid})
         if user:
             user["id"] = str(user.pop("_id"))
             return _sanitize(user)
@@ -111,11 +117,10 @@ class MongoDBService:
     async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         """Get user by email."""
         collection = self._get_collection("users")
-
         if collection is None:
             return None
 
-        user = collection.find_one({"email": email.lower()})
+        user = await collection.find_one({"email": email.lower()})
         if user:
             user["id"] = str(user.pop("_id"))
             return _sanitize(user)
@@ -124,13 +129,17 @@ class MongoDBService:
     async def update_user(self, user_id: str, update_data: dict[str, Any]) -> bool:
         """Update user data."""
         collection = self._get_collection("users")
-
         if collection is None:
             return False
 
+        try:
+            oid = ObjectId(user_id)
+        except InvalidId:
+            return False
+
         update_data["updated_at"] = datetime.now()
-        result = collection.update_one(
-            {"_id": ObjectId(user_id)},
+        result = await collection.update_one(
+            {"_id": oid},
             {"$set": update_data},
         )
         return result.modified_count > 0
@@ -148,17 +157,21 @@ class MongoDBService:
         note_data["created_at"] = datetime.now()
         note_data["updated_at"] = datetime.now()
 
-        collection.insert_one(note_data)
+        await collection.insert_one(note_data)
         return note_data["id"]
 
     async def get_note(self, note_id: str) -> dict[str, Any] | None:
         """Get note by ID."""
         collection = self._get_collection("notes")
-
         if collection is None:
             return None
 
-        note = collection.find_one({"_id": ObjectId(note_id)})
+        try:
+            oid = ObjectId(note_id)
+        except InvalidId:
+            return None
+
+        note = await collection.find_one({"_id": oid})
         if note:
             note["id"] = str(note.pop("_id"))
             return _sanitize(note)
@@ -173,7 +186,6 @@ class MongoDBService:
     ) -> list[dict[str, Any]]:
         """Get all notes for a user."""
         collection = self._get_collection("notes")
-
         if collection is None:
             return []
 
@@ -181,12 +193,8 @@ class MongoDBService:
         if subject:
             query["subject"] = subject
 
-        notes = (
-            collection.find(query)
-            .sort("created_at", DESCENDING)
-            .skip(offset)
-            .limit(limit)
-        )
+        cursor = collection.find(query).sort("created_at", DESCENDING).skip(offset).limit(limit)
+        notes = await cursor.to_list(length=limit)
 
         result = []
         for note in notes:
@@ -198,13 +206,17 @@ class MongoDBService:
     async def update_note(self, note_id: str, update_data: dict[str, Any]) -> bool:
         """Update note data."""
         collection = self._get_collection("notes")
-
         if collection is None:
             return False
 
+        try:
+            oid = ObjectId(note_id)
+        except InvalidId:
+            return False
+
         update_data["updated_at"] = datetime.now()
-        result = collection.update_one(
-            {"_id": ObjectId(note_id)},
+        result = await collection.update_one(
+            {"_id": oid},
             {"$set": update_data},
         )
         return result.modified_count > 0
@@ -212,11 +224,15 @@ class MongoDBService:
     async def delete_note(self, note_id: str) -> bool:
         """Delete a note."""
         collection = self._get_collection("notes")
-
         if collection is None:
             return False
 
-        result = collection.delete_one({"_id": ObjectId(note_id)})
+        try:
+            oid = ObjectId(note_id)
+        except InvalidId:
+            return False
+
+        result = await collection.delete_one({"_id": oid})
         return result.deleted_count > 0
 
     async def search_notes(
@@ -227,22 +243,21 @@ class MongoDBService:
     ) -> list[dict[str, Any]]:
         """Search notes by content."""
         collection = self._get_collection("notes")
-
         if collection is None:
             return []
 
         search_query = {
             "user_id": user_id,
-            "$or": [
-                {"title": {"$regex": query, "$options": "i"}},
-                {"raw_text": {"$regex": query, "$options": "i"}},
-            ],
         }
+
+        if query.strip():
+            search_query["$text"] = {"$search": query}
 
         if filters and filters.get("subject"):
             search_query["subject"] = filters["subject"]
 
-        notes = collection.find(search_query).limit(20)
+        cursor = collection.find(search_query).limit(20)
+        notes = await cursor.to_list(length=20)
 
         result = []
         for note in notes:
@@ -263,17 +278,21 @@ class MongoDBService:
         quiz_data["id"] = str(quiz_data["_id"])
         quiz_data["created_at"] = datetime.now()
 
-        collection.insert_one(quiz_data)
+        await collection.insert_one(quiz_data)
         return quiz_data["id"]
 
     async def get_quiz(self, quiz_id: str) -> dict[str, Any] | None:
         """Get quiz by ID."""
         collection = self._get_collection("quizzes")
-
         if collection is None:
             return None
 
-        quiz = collection.find_one({"_id": ObjectId(quiz_id)})
+        try:
+            oid = ObjectId(quiz_id)
+        except InvalidId:
+            return None
+
+        quiz = await collection.find_one({"_id": oid})
         if quiz:
             quiz["id"] = str(quiz.pop("_id"))
             return _sanitize(quiz)
@@ -282,11 +301,11 @@ class MongoDBService:
     async def get_note_quizzes(self, note_id: str) -> list[dict[str, Any]]:
         """Get all quizzes for a note."""
         collection = self._get_collection("quizzes")
-
         if collection is None:
             return []
 
-        quizzes = collection.find({"note_id": note_id})
+        cursor = collection.find({"note_id": note_id})
+        quizzes = await cursor.to_list(length=None)
 
         result = []
         for quiz in quizzes:
@@ -305,7 +324,7 @@ class MongoDBService:
         result_data["id"] = str(result_data["_id"])
         result_data["created_at"] = datetime.now()
 
-        collection.insert_one(result_data)
+        await collection.insert_one(result_data)
         return result_data["id"]
 
     async def get_user_quiz_results(
@@ -315,15 +334,11 @@ class MongoDBService:
     ) -> list[dict[str, Any]]:
         """Get quiz results for user."""
         collection = self._get_collection("quiz_results")
-
         if collection is None:
             return []
 
-        results = (
-            collection.find({"user_id": user_id})
-            .sort("created_at", DESCENDING)
-            .limit(limit)
-        )
+        cursor = collection.find({"user_id": user_id}).sort("created_at", DESCENDING).limit(limit)
+        results = await cursor.to_list(length=limit)
 
         result_list = []
         for result in results:
@@ -359,7 +374,7 @@ class MongoDBService:
             ids.append(card["id"])
 
         if flashcards:
-            collection.insert_many(flashcards)
+            await collection.insert_many(flashcards)
 
         return ids
 
@@ -371,7 +386,6 @@ class MongoDBService:
     ) -> list[dict[str, Any]]:
         """Get flashcards with optional filtering."""
         collection = self._get_collection("flashcards")
-
         if collection is None:
             return []
 
@@ -385,7 +399,8 @@ class MongoDBService:
         if due_only:
             query["next_review"] = {"$lte": datetime.now()}
 
-        cards = collection.find(query)
+        cursor = collection.find(query)
+        cards = await cursor.to_list(length=None)
 
         result = []
         for card in cards:
@@ -397,11 +412,15 @@ class MongoDBService:
     async def get_flashcard(self, card_id: str) -> dict[str, Any] | None:
         """Get a single flashcard by ID."""
         collection = self._get_collection("flashcards")
-
         if collection is None:
             return None
 
-        card = collection.find_one({"_id": ObjectId(card_id)})
+        try:
+            oid = ObjectId(card_id)
+        except InvalidId:
+            return None
+
+        card = await collection.find_one({"_id": oid})
         if card:
             card["id"] = str(card.pop("_id"))
             return _sanitize(card)
@@ -410,13 +429,17 @@ class MongoDBService:
     async def update_flashcard(self, card_id: str, update_data: dict[str, Any]) -> bool:
         """Update flashcard."""
         collection = self._get_collection("flashcards")
-
         if collection is None:
             return False
 
+        try:
+            oid = ObjectId(card_id)
+        except InvalidId:
+            return False
+
         update_data["updated_at"] = datetime.now()
-        result = collection.update_one(
-            {"_id": ObjectId(card_id)},
+        result = await collection.update_one(
+            {"_id": oid},
             {"$set": update_data},
         )
         return result.modified_count > 0
@@ -426,11 +449,10 @@ class MongoDBService:
     async def get_or_create_progress(self, user_id: str) -> dict[str, Any]:
         """Get or create user progress."""
         collection = self._get_collection("user_progress")
-
         if collection is None:
             return self._default_progress(user_id)
 
-        progress = collection.find_one({"user_id": user_id})
+        progress = await collection.find_one({"user_id": user_id})
 
         if progress:
             progress["id"] = str(progress.pop("_id"))
@@ -440,7 +462,7 @@ class MongoDBService:
         progress["_id"] = ObjectId()
         progress["id"] = str(progress["_id"])
 
-        collection.insert_one(progress)
+        await collection.insert_one(progress)
         return _sanitize(progress)
 
     @staticmethod
@@ -463,12 +485,11 @@ class MongoDBService:
     async def update_progress(self, user_id: str, update_data: dict[str, Any]) -> bool:
         """Update user progress."""
         collection = self._get_collection("user_progress")
-
         if collection is None:
             return False
 
         update_data["updated_at"] = datetime.now()
-        collection.update_one(
+        await collection.update_one(
             {"user_id": user_id},
             {"$set": update_data},
             upsert=True,
@@ -491,11 +512,10 @@ class MongoDBService:
         if self.gridfs is not None:
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
             content_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp", "gif") else "image/jpeg"
-            file_id = self.gridfs.put(
+            file_id = await self.gridfs.upload_from_stream(
+                filename,
                 image_bytes,
-                filename=filename,
-                content_type=content_type,
-                metadata={"user_id": user_id, "note_id": note_id},
+                metadata={"user_id": user_id, "note_id": note_id, "contentType": content_type},
             )
             return f"/images/{file_id}"
 
@@ -511,8 +531,16 @@ class MongoDBService:
         if self.gridfs is None:
             return None
         try:
-            grid_out = self.gridfs.get(ObjectId(file_id))
-            return grid_out.read(), grid_out.content_type or "image/jpeg"
+            oid = ObjectId(file_id)
+        except InvalidId:
+            return None
+
+        try:
+            stream = await self.gridfs.open_download_stream(oid)
+            data = await stream.read()
+            meta = stream.metadata or {}
+            content_type = meta.get("contentType", "image/jpeg")
+            return data, content_type
         except NoFile:
             return None
 

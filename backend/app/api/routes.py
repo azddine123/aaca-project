@@ -1,3 +1,4 @@
+
 """API Routes for AI Academic Cognitive Assistant."""
 
 import logging
@@ -5,11 +6,17 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, Request
+from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+from app.core.config import settings
 
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     get_current_user,
     get_password_hash,
     verify_password,
@@ -31,14 +38,18 @@ from app.models.schemas import (
     SummaryResponse,
     User,
     UserCreate,
+    UserUpdateSchema,
+    PasswordChangeSchema,
 )
 from app.services.adaptive_learning import adaptive_learning
 from app.services.llm_service import llm_service
 from app.services.mongodb_service import mongodb_service
 from app.services.pipeline import pipeline
+from app.services.rag_service import rag_service
 
 logger = logging.getLogger("aaca")
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 # =============================================================================
@@ -46,7 +57,8 @@ router = APIRouter()
 # =============================================================================
 
 @router.post("/auth/register", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate) -> dict:
+@limiter.limit("3/minute")
+async def register(request: Request, user_data: UserCreate) -> dict:
     """Register a new user."""
     existing = await mongodb_service.get_user_by_email(user_data.email)
     if existing:
@@ -72,7 +84,8 @@ async def register(user_data: UserCreate) -> dict:
 
 
 @router.post("/auth/login")
-async def login(email: str = Form(...), password: str = Form(...)) -> dict:
+@limiter.limit("5/minute")
+async def login(request: Request, email: str = Form(...), password: str = Form(...)) -> dict:
     """Login user and return tokens."""
     user = await mongodb_service.get_user_by_email(email)
     if not user or not verify_password(password, user.get("password_hash", "")):
@@ -97,13 +110,29 @@ async def login(email: str = Form(...), password: str = Form(...)) -> dict:
         },
     }
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+@router.post("/auth/refresh")
+async def refresh_token_endpoint(body: RefreshRequest):
+    payload = decode_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(401, "Invalid refresh token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(401, "Invalid token payload")
+    new_access = create_access_token({"sub": user_id})
+    return {"access_token": new_access, "token_type": "bearer"}
+
 
 # =============================================================================
 # Processing Routes
 # =============================================================================
 
 @router.post("/process/image", response_model=ProcessingResult)
+@limiter.limit("10/minute")
 async def process_image(
+    request: Request,
     file: UploadFile = File(...),
     perspective_correction: bool = Form(True),
     enhance_image: bool = Form(True),
@@ -120,6 +149,12 @@ async def process_image(
         )
 
     contents = await file.read()
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(413, f"File too large. Max: {settings.MAX_UPLOAD_SIZE} bytes")
+
+    ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in ALLOWED_MIME:
+        raise HTTPException(400, f"Unsupported file type: {file.content_type}")
 
     options = {
         "perspective_correction": perspective_correction,
@@ -149,7 +184,9 @@ async def process_image(
 
 
 @router.post("/process/capture")
+@limiter.limit("10/minute")
 async def capture_and_process(
+    request: Request,
     file: UploadFile = File(...),
     title: str | None = Form(None),
     tags: str | None = Form(None),
@@ -158,6 +195,12 @@ async def capture_and_process(
 ) -> dict:
     """Capture, process, and save a note in one step."""
     contents = await file.read()
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(413, f"File too large. Max: {settings.MAX_UPLOAD_SIZE} bytes")
+
+    ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in ALLOWED_MIME:
+        raise HTTPException(400, f"Unsupported file type: {file.content_type}")
 
     options = {
         "perspective_correction": True,
@@ -204,6 +247,20 @@ async def capture_and_process(
 
     note_id = await mongodb_service.create_note(note_data)
 
+    if result.get("corrected_text", "").strip():
+        try:
+            await rag_service.index_note(
+                user_id=current_user,
+                note_id=note_id,
+                text=result["corrected_text"],
+                metadata={
+                    "subject": result.get("detected_subject", "other"),
+                    "title": result["structured_content"].get("title", "Untitled"),
+                },
+            )
+        except Exception as e:
+            logger.warning(f"RAG indexing failed: {e}")
+
     # Create quiz if generated
     quiz_id = None
     if result.get("quiz"):
@@ -243,6 +300,15 @@ async def capture_and_process(
 # Note Routes
 # =============================================================================
 
+async def _get_owned_note(note_id: str, current_user: str) -> dict:
+    note = await mongodb_service.get_note(note_id)
+    if not note or note["user_id"] != current_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found",
+        )
+    return note
+
 @router.get("/notes", response_model=list[NoteListItem])
 async def list_notes(
     subject: SubjectCategory | None = None,
@@ -277,14 +343,7 @@ async def get_note(
     current_user: str = Depends(get_current_user),
 ) -> Note:
     """Get a specific note by ID."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
-
+    note = await _get_owned_note(note_id, current_user)
     return Note(**note)
 
 
@@ -294,13 +353,7 @@ async def delete_note(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Delete a note."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    await _get_owned_note(note_id, current_user)
 
     await mongodb_service.delete_note(note_id)
     return {"message": "Note deleted successfully"}
@@ -313,13 +366,7 @@ async def update_note(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Update a note's metadata."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    await _get_owned_note(note_id, current_user)
 
     allowed_fields = ["title", "subject", "tags", "cognitive_level"]
     filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields}
@@ -337,13 +384,7 @@ async def generate_note_summary(
     current_user: str = Depends(get_current_user),
 ) -> SummaryResponse:
     """Generate a new summary for a note."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    note = await _get_owned_note(note_id, current_user)
 
     summary_data = await llm_service.generate_summary(
         note["raw_text"],
@@ -372,13 +413,7 @@ async def get_note_quizzes(
     current_user: str = Depends(get_current_user),
 ) -> list[Quiz]:
     """Get all quizzes for a note."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    await _get_owned_note(note_id, current_user)
 
     quizzes = await mongodb_service.get_note_quizzes(note_id)
     return [Quiz(**q) for q in quizzes]
@@ -392,13 +427,7 @@ async def generate_quiz(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Generate a new quiz for a note."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    note = await _get_owned_note(note_id, current_user)
 
     quiz_data = await llm_service.generate_quiz(
         note["raw_text"],
@@ -498,13 +527,7 @@ async def get_flashcards(
     current_user: str = Depends(get_current_user),
 ) -> list[Flashcard]:
     """Get flashcards for a note."""
-    note = await mongodb_service.get_note(note_id)
-
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
+    await _get_owned_note(note_id, current_user)
 
     flashcards = await mongodb_service.get_flashcards(note_id=note_id)
     return [Flashcard(**f) for f in flashcards]
@@ -526,12 +549,7 @@ async def review_flashcard(
         )
 
     # Verify ownership: the flashcard's parent note must belong to the current user.
-    note = await mongodb_service.get_note(card["note_id"])
-    if not note or note["user_id"] != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    await _get_owned_note(card["note_id"], current_user)
 
     next_review = adaptive_learning.calculate_next_review(card, review.difficulty_rating)
 
@@ -610,6 +628,32 @@ async def get_me(current_user: str = Depends(get_current_user)) -> User:
             detail="User not found",
         )
     return User(**user)
+
+
+
+
+@router.patch("/user/me")
+async def update_profile(data: UserUpdateSchema,
+                         current_user: str = Depends(get_current_user)):
+    user = await mongodb_service.get_user(current_user)
+    if not user:
+        raise HTTPException(404, "User not found")
+    update = {k: v for k, v in data.model_dump(exclude_none=True).items()}
+    if update:
+        await mongodb_service.update_user(current_user, update)
+    return {"message": "Profile updated"}
+
+@router.patch("/user/password")
+async def change_password(data: PasswordChangeSchema,
+                          current_user: str = Depends(get_current_user)):
+    user = await mongodb_service.get_user(current_user)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not verify_password(data.current_password, user.get("password_hash", "")):
+        raise HTTPException(400, "Current password is incorrect")
+    await mongodb_service.update_user(current_user,
+        {"password_hash": get_password_hash(data.new_password)})
+    return {"message": "Password updated"}
 
 
 @router.get("/user/progress")
