@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
-    View, Text, FlatList, StyleSheet,
+    View, Text, FlatList, StyleSheet, Alert,
     TouchableOpacity, TextInput, RefreshControl, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -83,7 +83,15 @@ export default function NotesScreen() {
                     label="Nouvelle"
                     icon="camera-plus-outline"
                     size="sm"
-                    onPress={() => router.push('/capture')}
+                    onPress={() => Alert.alert(
+                        'Nouvelle note',
+                        'Choisissez le mode de capture',
+                        [
+                            { text: 'Séance multi-photos', onPress: () => router.push('/session-new') },
+                            { text: 'Capture rapide', onPress: () => router.push('/capture') },
+                            { text: 'Annuler', style: 'cancel' },
+                        ],
+                    )}
                 />
             </View>
 
@@ -147,8 +155,8 @@ export default function NotesScreen() {
                         subtitle={query.length > 0
                             ? `Aucune fiche ne correspond à "${query}".`
                             : 'Capturez votre première page ou lancez une séance multi-images.'}
-                        actionLabel={query.length === 0 ? 'Capturer une note' : undefined}
-                        onAction={query.length === 0 ? () => router.push('/capture') : undefined}
+                        actionLabel={query.length === 0 ? 'Nouvelle séance' : undefined}
+                        onAction={query.length === 0 ? () => router.push('/session-new') : undefined}
                     />
                 }
                 renderItem={({ item }: { item: Note }) => {
