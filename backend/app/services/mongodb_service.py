@@ -371,6 +371,13 @@ class MongoDBService:
                 card["user_id"] = user_id
             card["created_at"] = now
             card["updated_at"] = now
+            # SM-2 initialization — cards are due immediately from creation
+            card.setdefault("next_review", now)
+            card.setdefault("review_count", 0)
+            card.setdefault("mastery_level", 0.0)
+            card.setdefault("easiness_factor", 2.5)
+            card.setdefault("repetitions", 0)
+            card.setdefault("interval", 1)
             ids.append(card["id"])
 
         if flashcards:
@@ -383,24 +390,28 @@ class MongoDBService:
         note_id: str | None = None,
         due_only: bool = False,
         user_id: str | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Get flashcards with optional filtering."""
+        """Get flashcards with optional filtering, sorted by next_review when due."""
         collection = self._get_collection("flashcards")
         if collection is None:
             return []
 
-        query = {}
+        query: dict = {}
         if note_id:
             query["note_id"] = note_id
-
         if user_id:
             query["user_id"] = user_id
-
         if due_only:
             query["next_review"] = {"$lte": datetime.now()}
 
         cursor = collection.find(query)
-        cards = await cursor.to_list(length=None)
+        if due_only:
+            cursor = cursor.sort("next_review", ASCENDING)
+        if limit is not None:
+            cursor = cursor.limit(limit)
+
+        cards = await cursor.to_list(length=limit)
 
         result = []
         for card in cards:

@@ -141,18 +141,15 @@ class AdaptiveLearningService:
         return path
 
     @staticmethod
-    def calculate_next_review(
-        flashcard: dict,
-        performance_rating: int,
-    ) -> datetime:
-        """Calculate next review date using spaced repetition algorithm (SM-2).
+    def compute_sm2(flashcard: dict, performance_rating: int) -> dict:
+        """Full SM-2 computation returning all updated algorithm state.
 
         Args:
-            flashcard: Flashcard data including easiness_factor, repetitions, interval
-            performance_rating: 1-5 rating where 5 is "easy"
+            flashcard: Current flashcard state (easiness_factor, repetitions, interval)
+            performance_rating: 1–5 where 5 = perfect recall, 1 = complete blackout
 
         Returns:
-            Next review datetime
+            dict with next_review, easiness_factor, repetitions, interval
         """
         easiness = flashcard.get("easiness_factor", 2.5)
         repetitions = flashcard.get("repetitions", 0)
@@ -172,7 +169,17 @@ class AdaptiveLearningService:
             else:
                 interval = round(interval * easiness)
 
-        return datetime.now() + timedelta(days=interval)
+        return {
+            "next_review": datetime.now() + timedelta(days=interval),
+            "easiness_factor": round(easiness, 4),
+            "repetitions": repetitions,
+            "interval": interval,
+        }
+
+    @staticmethod
+    def calculate_next_review(flashcard: dict, performance_rating: int) -> datetime:
+        """Backward-compatible wrapper: returns only next review datetime."""
+        return AdaptiveLearningService.compute_sm2(flashcard, performance_rating)["next_review"]
 
     def get_daily_recommendations(
         self,

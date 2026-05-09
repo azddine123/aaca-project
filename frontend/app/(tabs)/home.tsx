@@ -21,6 +21,7 @@ interface Stats {
     flashcards_due_count: number;
     average_score: number;
     study_streak: number;
+    subject_distribution: Record<string, number>;
 }
 
 const SUBJECT_ICONS: Record<string, string> = {
@@ -166,6 +167,31 @@ export default function HomeScreen() {
                     </View>
                 ))}
             </View>
+
+            {/* ── Subject distribution ── */}
+            {stats?.subject_distribution && Object.keys(stats.subject_distribution).length > 0 && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: SIZES.md, paddingTop: 10, gap: 8 }}
+                >
+                    {Object.entries(stats.subject_distribution)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([subject, count]) => {
+                            const color = SUBJECT_COLORS[subject] || C.primary;
+                            const icon = getSubjectIcon(subject);
+                            return (
+                                <View key={subject} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: color + '18', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: color + '30' }}>
+                                    <MaterialCommunityIcons name={icon as any} size={13} color={color} />
+                                    <Text style={{ fontSize: 12, fontWeight: '600', color }}>{SUBJECT_LABELS[subject] || subject}</Text>
+                                    <View style={{ backgroundColor: color + '30', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color }}>{count as number}</Text>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                </ScrollView>
+            )}
 
             {/* ── Flashcards due today ── */}
             <View style={styles.sectionHeader}>
