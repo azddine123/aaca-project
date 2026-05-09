@@ -114,6 +114,14 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+class NoteFromTextRequest(BaseModel):
+    raw_text: str
+    title: str | None = None
+    subject_hint: str | None = None
+
+class AskNoteRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+
 @router.post("/auth/refresh")
 async def refresh_token_endpoint(body: RefreshRequest):
     payload = decode_token(body.refresh_token)
@@ -129,6 +137,33 @@ async def refresh_token_endpoint(body: RefreshRequest):
 # =============================================================================
 # Processing Routes
 # =============================================================================
+
+@router.post("/process/ocr-only")
+@limiter.limit("10/minute")
+async def ocr_only(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Run OCR only — no AI generation. Returns raw text for user correction."""
+    contents = await file.read()
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(413, "File too large")
+    ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in ALLOWED_MIME:
+        raise HTTPException(400, f"Unsupported file type: {file.content_type}")
+
+    from app.services.image_processor import image_processor
+    from app.services.ocr_service import ocr_service as _ocr
+
+    processed, _ = await image_processor.preprocess(
+        contents, perspective_correction=True, enhance_contrast=True, denoise=True,
+    )
+    result = await _ocr.extract_text(processed, detect_formulas=True)
+    return {
+        "raw_text": result.get("text", ""),
+        "confidence": result.get("average_confidence", 1.0),
+    }
 
 @router.post("/process/image", response_model=ProcessingResult)
 @limiter.limit("10/minute")
@@ -301,6 +336,80 @@ async def capture_and_process(
 # Note Routes
 # =============================================================================
 
+@router.post("/notes/from-text")
+async def create_note_from_text(
+    data: NoteFromTextRequest,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Create and save a note from user-corrected OCR text (skips image processing)."""
+    import time
+    if not data.raw_text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Text cannot be empty")
+
+    start_time = time.time()
+    options = {
+        "subject_hint": data.subject_hint,
+        "generate_summary": True,
+        "generate_quiz": True,
+        "generate_flashcards": True,
+    }
+    post_ocr = await pipeline._run_post_ocr_steps(data.raw_text, [], options, start_time)
+
+    note_data: dict[str, Any] = {
+        "user_id": current_user,
+        "title": data.title or post_ocr["structured_content"].get("title", "Untitled"),
+        "subject": post_ocr["detected_subject"],
+        "tags": [],
+        "processed_content": post_ocr["structured_content"],
+        "raw_text": data.raw_text,
+        "summary": (post_ocr.get("summary") or {}).get("summary", ""),
+        "latex_formulas": [],
+        "cognitive_level": "intermediate",
+        "processing_metadata": {
+            "processing_time": round(time.time() - start_time, 2),
+            "subject_confidence": post_ocr["subject_confidence"],
+        },
+    }
+    note_id = await mongodb_service.create_note(note_data)
+
+    try:
+        await rag_service.index_note(
+            user_id=current_user, note_id=note_id, text=data.raw_text,
+            metadata={"subject": post_ocr.get("detected_subject", "other"), "title": note_data["title"]},
+        )
+    except Exception as e:
+        logger.warning(f"RAG indexing failed: {e}")
+
+    quiz_id = None
+    if (post_ocr.get("quiz") or {}).get("questions"):
+        quiz_data = post_ocr["quiz"]
+        quiz_data["note_id"] = note_id
+        quiz_data["user_id"] = current_user
+        quiz_id = await mongodb_service.create_quiz(quiz_data)
+        quiz_data.pop("_id", None)
+        await mongodb_service.update_note(note_id, {"quizzes": [quiz_id]})
+
+    flashcards = post_ocr.get("flashcards") or []
+    if flashcards:
+        fc_ids = await mongodb_service.create_flashcards(note_id, flashcards, current_user)
+        await mongodb_service.update_note(note_id, {"flashcards": fc_ids})
+
+    progress = await mongodb_service.get_or_create_progress(current_user)
+    await mongodb_service.update_progress(current_user, {
+        "total_notes": progress.get("total_notes", 0) + 1,
+        "last_activity": datetime.now(),
+    })
+
+    return {
+        "note_id": note_id,
+        "quiz_id": quiz_id,
+        "flashcards_count": len(flashcards),
+        "detected_subject": post_ocr["detected_subject"],
+        "title": note_data["title"],
+        "processing_time": round(time.time() - start_time, 2),
+    }
+
+
 async def _get_owned_note(note_id: str, current_user: str) -> dict:
     note = await mongodb_service.get_note(note_id)
     if not note or note["user_id"] != current_user:
@@ -346,6 +455,33 @@ async def get_note(
     """Get a specific note by ID."""
     note = await _get_owned_note(note_id, current_user)
     return Note(**note)
+
+
+@router.post("/notes/{note_id}/ask")
+async def ask_note(
+    note_id: str,
+    body: AskNoteRequest,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Answer a question about a note using RAG (falls back to direct LLM)."""
+    note = await _get_owned_note(note_id, current_user)
+    try:
+        return await rag_service.answer_question(
+            user_id=current_user,
+            question=body.question,
+            note_id=note_id,
+        )
+    except Exception:
+        response = await llm_service._call_llm(
+            prompt=f"Question: {body.question}\n\nContenu du cours:\n{note['raw_text'][:4000]}",
+            system_prompt=(
+                "Tu es un assistant pédagogique. Réponds à la question en te basant "
+                "uniquement sur le contenu fourni. Sois précis et clair. "
+                "Si la réponse n'est pas dans le contenu, dis-le clairement."
+            ),
+            temperature=0.3,
+        )
+        return {"answer": response["content"], "sources": [], "question": body.question}
 
 
 @router.delete("/notes/{note_id}")
@@ -713,14 +849,20 @@ async def get_subjects() -> dict:
 @router.get("/stats")
 async def get_stats(current_user: str = Depends(get_current_user)) -> dict:
     """Get user statistics."""
-    progress = await mongodb_service.get_or_create_progress(current_user)
-    notes = await mongodb_service.get_user_notes(current_user)
-    quiz_results = await mongodb_service.get_user_quiz_results(current_user)
-
+    import asyncio as _aio
+    progress, notes, quiz_results, total_fc, due_fc = await _aio.gather(
+        mongodb_service.get_or_create_progress(current_user),
+        mongodb_service.get_user_notes(current_user),
+        mongodb_service.get_user_quiz_results(current_user),
+        mongodb_service.count_flashcards(user_id=current_user),
+        mongodb_service.count_flashcards(user_id=current_user, due_only=True),
+    )
     return {
         "total_notes": len(notes),
         "total_quizzes": len(quiz_results),
-        "average_score": statistics.mean([r["score"] for r in quiz_results]) if quiz_results else 0,
+        "total_flashcards": total_fc,
+        "flashcards_due_count": due_fc,
+        "average_score": round(statistics.mean([r["score"] for r in quiz_results]), 1) if quiz_results else 0,
         "study_streak": progress.get("study_streak", 0),
         "subject_distribution": progress.get("subject_distribution", {}),
         "recent_activity": progress.get("last_activity"),
