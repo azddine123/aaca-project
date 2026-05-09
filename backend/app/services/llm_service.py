@@ -265,7 +265,7 @@ Return the result as a valid JSON object with this exact structure:
     "examples": ["string"],
     "key_concepts": ["string"],
     "formulas": [{"latex": "string", "description": "string"}],
-    "subject_category": "mathematics|physics|chemistry|biology|cs|engineering|economics|literature|history|philosophy|other"
+    "subject_category": "mathematics|physics|chemistry|biology|computer_science|engineering|economics|literature|history|philosophy|other"
 }"""
 
         prompt = f"Analyze and structure this academic content:\n\n{raw_text[:4000]}"
@@ -343,7 +343,7 @@ Return JSON format:
         quiz_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Generate adaptive quiz from content."""
-        quiz_types = quiz_types or ["qcm", "open_ended"]
+        quiz_types = quiz_types or ["qcm"]
 
         system_prompt = f"""You are an expert quiz creator. Generate {num_questions} questions based on the provided content.
 Difficulty level: {difficulty}
@@ -494,6 +494,79 @@ Return JSON:
                 "error_patterns": [],
                 "recommendations": ["Review the content again"],
                 "suggested_difficulty": "beginner",
+            }
+
+
+    async def merge_captures_to_course(
+        self,
+        captures: list[dict[str, Any]],
+        subject: str | None = None,
+    ) -> dict[str, Any]:
+        """Merge multiple OCR captures into a single coherent structured note.
+
+        Each capture dict must contain at least `corrected_text` (or `raw_text`).
+        Returns a structured-content dict compatible with `structure_content`.
+        """
+        parts = []
+        for i, cap in enumerate(captures, start=1):
+            text = cap.get("corrected_text") or cap.get("raw_text") or ""
+            if text.strip():
+                parts.append(f"--- Capture {i} ---\n{text.strip()}")
+
+        combined = "\n\n".join(parts)
+        if not combined:
+            return {
+                "title": "Untitled",
+                "sections": [],
+                "definitions": [],
+                "examples": [],
+                "key_concepts": [],
+                "formulas": [],
+                "subject_category": subject or "other",
+            }
+
+        system_prompt = """You are an expert academic content editor. You receive several numbered captures
+from the same lecture or course, written in order. Your task:
+1. Deduplicate repeated content across captures.
+2. Fix cross-capture continuations (e.g. a sentence split between captures).
+3. Organize the result into a coherent academic structure.
+4. Infer the main title from the content.
+
+Return valid JSON with this exact structure:
+{
+    "title": "string",
+    "sections": [{"title": "string", "content": "string"}],
+    "definitions": [{"term": "string", "definition": "string"}],
+    "examples": ["string"],
+    "key_concepts": ["string"],
+    "formulas": [{"latex": "string", "description": "string"}],
+    "subject_category": "mathematics|physics|chemistry|biology|computer_science|engineering|economics|literature|history|philosophy|other"
+}"""
+
+        prompt = f"Merge and structure these course captures:\n\n{combined[:6000]}"
+        if subject:
+            prompt += f"\n\nKnown subject: {subject}"
+
+        response = await self._call_llm(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.3,
+            max_tokens=3000,
+            response_format="json",
+        )
+
+        try:
+            return json.loads(response["content"])
+        except json.JSONDecodeError:
+            logger.error("merge_captures_to_course: JSON parse error")
+            return {
+                "title": "Course Note",
+                "sections": [{"title": "Content", "content": combined}],
+                "definitions": [],
+                "examples": [],
+                "key_concepts": [],
+                "formulas": [],
+                "subject_category": subject or "other",
             }
 
 

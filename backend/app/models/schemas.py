@@ -42,6 +42,13 @@ class QuizType(str, Enum):
     MATCHING = "matching"
 
 
+class SessionStatus(str, Enum):
+    """Course session lifecycle status."""
+    DRAFT = "draft"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+
+
 # =============================================================================
 # User Models
 # =============================================================================
@@ -167,7 +174,7 @@ class Quiz(BaseModel):
     questions: list[QuizQuestion]
     total_points: int
     estimated_time: int
-    difficulty_distribution: dict[str, int]
+    difficulty_distribution: dict[str, int] = {}
     created_at: datetime
 
 
@@ -251,7 +258,8 @@ class Note(NoteBase):
     """Complete note model."""
     id: str
     user_id: str
-    original_image_url: str | None = None  # None for notes created from text (no image)
+    session_id: str | None = None          # set when note comes from a CourseSession
+    original_image_url: str | None = None  # None for text-only or multi-image notes
     processed_content: StructuredContent
     raw_text: str
     summary: str | None = None
@@ -315,3 +323,47 @@ class AdaptiveLearningPlan(BaseModel):
     focus_areas: list[str]
     suggested_difficulty: CognitiveLevel
     weekly_goal: dict[str, Any]
+
+
+# =============================================================================
+# Course Session Models  (multi-image capture flow)
+# =============================================================================
+
+class CourseSessionCreate(BaseModel):
+    """Request body to create a new course session."""
+    title: str = Field(..., min_length=1, max_length=200)
+    subject: SubjectCategory | None = None
+    date: datetime | None = None
+
+
+class CourseSession(BaseModel):
+    """A course session grouping multiple image captures into one note."""
+    id: str
+    user_id: str
+    title: str
+    subject: SubjectCategory | None = None
+    date: datetime
+    status: SessionStatus
+    capture_ids: list[str] = []
+    final_note_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class Capture(BaseModel):
+    """One image capture within a CourseSession."""
+    id: str
+    session_id: str
+    user_id: str
+    order: int
+    image_url: str | None = None
+    raw_text: str = ""
+    corrected_text: str = ""
+    confidence: float = 0.0
+    formulas: list[dict[str, Any]] = []
+    created_at: datetime
+
+
+class CaptureUpdate(BaseModel):
+    """Payload to update the corrected text of a capture."""
+    corrected_text: str

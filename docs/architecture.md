@@ -3,407 +3,206 @@
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           AI ACADEMIC COGNITIVE ASSISTANT                    │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                   AI ACADEMIC COGNITIVE ASSISTANT                    │
+└─────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────┐     ┌──────────────────────────────────────────┐
-│   FRONTEND (React Native│     │         BACKEND (FastAPI)                │
-│         + Expo)         │     │                                          │
-│                         │     │  ┌─────────────────────────────────────┐ │
-│  ┌───────────────────┐  │     │  │         AI Pipeline                 │ │
-│  │  Capture Screen   │  │     │  │  ┌─────────┐  ┌─────────┐          │ │
-│  │  - Camera         │  │     │  │  │ OpenCV  │→ │  OCR    │          │ │
-│  │  - Gallery        │  │     │  │  │Preprocess│  │(EasyOCR)│          │ │
-│  └───────────────────┘  │     │  │  └─────────┘  └────┬────┘          │ │
-│                         │     │  │                   ↓                  │ │
-│  ┌───────────────────┐  │     │  │  ┌─────────┐  ┌─────────┐          │ │
-│  │  Notes Screen     │  │     │  │  │  LaTeX  │→ │   LLM   │          │ │
-│  │  - List/Search    │  │     │  │  │(Pix2Tex)│  │(GPT-4)  │          │ │
-│  │  - Detail View    │  │     │  │  └─────────┘  └────┬────┘          │ │
-│  └───────────────────┘  │     │  │                   ↓                  │ │
-│                         │     │  │  ┌───────────────────────────────┐  │ │
-│  ┌───────────────────┐  │     │  │  │  Content Generation           │  │ │
-│  │  Study Screen     │  │     │  │  │  - Summaries                  │  │ │
-│  │  - Flashcards     │  │     │  │  │  - Quizzes                    │  │ │
-│  │  - Quizzes        │  │     │  │  │  - Flashcards                 │  │ │
-│  └───────────────────┘  │     │  │  └───────────────────────────────┘  │ │
-│                         │     │  └─────────────────────────────────────┘ │
-│         ↓ HTTPS/JSON    │     │                   ↓                       │
-│    ┌──────────────┐     │     │  ┌─────────────────────────────────────┐ │
-│    │  API Client  │←────┼─────┼──┤  REST API (FastAPI)                 │ │
-│    │  (Axios)     │     │     │  │  - /auth/*  Authentication          │ │
-│    └──────────────┘     │     │  │  - /process/* Image Processing      │ │
-│                         │     │  │  - /notes/* CRUD Operations         │ │
-│  ┌───────────────────┐  │     │  │  - /quizzes/* Quiz Management       │ │
-│  │  Zustand Stores   │  │     │  │  - /flashcards/* Flashcard Review   │ │
-│  │  - AuthStore      │  │     │  └─────────────────────────────────────┘ │
-│  │  - NotesStore     │  │     │                   ↓                       │
-│  │  - QuizStore      │  │     │  ┌─────────────────────────────────────┐ │
-│  │  - FlashcardStore │  │     │  │  Firebase                           │ │
-│  └───────────────────┘  │     │  │  - Firestore (Database)             │ │
-└─────────────────────────┘     │  │  - Storage (Images)                 │ │
-                                │  └─────────────────────────────────────┘ │
-                                └──────────────────────────────────────────┘
+┌────────────────────────────┐     ┌────────────────────────────────┐
+│  FRONTEND                  │     │  BACKEND                       │
+│  Expo SDK 54 / RN 0.81     │     │  Python 3.13 / FastAPI         │
+│  expo-router 6             │     │                                │
+│                            │     │  ┌────────────────────────┐   │
+│  Screens                   │     │  │   AI Pipeline           │   │
+│  ─────────                 │◄───►│  │  ImageProcessor (OpenCV)│   │
+│  (tabs)/home.tsx           │REST │  │  OCR Service (EasyOCR)  │   │
+│  (tabs)/notes.tsx          │ JWT │  │  LLM Service            │   │
+│  (tabs)/study.tsx          │     │  │  RAG Service            │   │
+│  capture.tsx               │     │  └────────────────────────┘   │
+│  session-new.tsx           │     │                                │
+│  note-detail.tsx           │     │  ┌────────────────────────┐   │
+│                            │     │  │   Persistence           │   │
+│  State / Context           │     │  │  MongoDB (Motor async)  │   │
+│  ─────────────             │     │  │  GridFS (image storage) │   │
+│  AuthContext               │     │  │  Local filesystem       │   │
+│  NotesContext              │     │  │   (fallback)            │   │
+│  StudyContext              │     │  └────────────────────────┘   │
+│  AppearanceContext         │     │                                │
+└────────────────────────────┘     └────────────────────────────────┘
 ```
 
-## Data Flow
+---
 
-### 1. Image Capture and Processing Flow
+## Frontend Stack
 
+| Layer          | Technology                                   |
+|----------------|----------------------------------------------|
+| Framework      | Expo SDK 54 / React Native 0.81              |
+| Navigation     | expo-router 6 (file-based)                   |
+| Styling        | React Native StyleSheet + expo-linear-gradient|
+| Icons          | @expo/vector-icons (MaterialCommunityIcons)  |
+| Dates          | date-fns v4 with `fr` locale                 |
+| State          | React Context (Auth, Notes, Study, Appearance)|
+| HTTP           | `authFetch` wrapper from AuthContext          |
+
+### Tab Structure
 ```
-User captures image
-       ↓
-[Camera/Gallery] → Expo ImagePicker
-       ↓
-Frontend: CaptureScreen
-       ↓
-POST /process/capture (multipart/form-data)
-       ↓
-Backend Pipeline:
-  1. ImagePreprocessor (OpenCV)
-     - Perspective correction
-     - Contrast enhancement
-     - Noise reduction
-  2. OCRService (EasyOCR)
-     - Text extraction
-     - Confidence scoring
-  3. LaTeXService (Pix2Tex)
-     - Formula detection
-     - LaTeX conversion
-  4. SubjectClassifier
-     - Pattern matching
-     - Keyword analysis
-  5. LLMService (GPT-4/Gemini)
-     - Content structuring
-     - Summary generation
-     - Quiz generation
-     - Flashcard generation
-       ↓
-Firebase Storage (image)
-Firebase Firestore (processed data)
-       ↓
-Response to Frontend
-       ↓
-Update NotesStore
+(tabs)/
+  _layout.tsx   — custom tab bar (5 tabs + FAB centre)
+  home.tsx      — dashboard: stats, subject pills, due flashcards
+  notes.tsx     — note list + search
+  snap.tsx      — FAB placeholder → redirects to /capture
+  study.tsx     — flashcard flip (SM-2) + QCM quiz session
+  profile.tsx   — user profile & settings
 ```
 
-### 2. Quiz Flow
-
+### Key Non-Tab Screens
 ```
-User requests quiz for note
-       ↓
-Frontend: NoteDetailScreen
-       ↓
-POST /notes/{id}/quizzes
-       ↓
-LLMService.generate_quiz()
-       ↓
-Store in Firestore
-       ↓
-Frontend: QuizScreen
-       ↓
-User answers questions
-       ↓
-POST /quizzes/{id}/submit
-       ↓
-Calculate score, analyze errors
-       ↓
-Update UserProgress
-       ↓
-Response with results
-       ↓
-Frontend: QuizResultScreen
+capture.tsx       — single-image OCR flow (idle → ocr → review → done)
+session-new.tsx   — multi-image course session (idle → capturing → finalizing → done)
+note-detail.tsx   — note tabs: Résumé / Contenu / Étudier
 ```
 
-### 3. Flashcard Review Flow
+---
+
+## Backend Stack
+
+| Layer          | Technology                                |
+|----------------|-------------------------------------------|
+| Framework      | FastAPI (async, Python 3.13)              |
+| Database       | MongoDB via Motor (AsyncIOMotorClient)    |
+| Image storage  | GridFS (primary) / local filesystem       |
+| Auth           | JWT (HS256) via python-jose               |
+| Password hash  | passlib/bcrypt                            |
+| OCR            | EasyOCR                                   |
+| Image proc.    | OpenCV + Pillow                           |
+| LLM            | Multi-provider: OpenAI / Google / Anthropic claude-sonnet-4-6 |
+| Vector search  | RAG service (ChromaDB or similar)         |
+| Rate limiting  | slowapi                                   |
+
+### Key Services
 
 ```
-User starts flashcard session
-       ↓
-GET /flashcards/due
-       ↓
-Filter cards with next_review <= now
-       ↓
-Frontend: FlashcardStudyScreen
-       ↓
-User reviews card (flip → rate)
-       ↓
-POST /flashcards/{id}/review
-       ↓
-Spaced Repetition Algorithm (SM-2)
-  - Update easiness factor
-  - Calculate next review date
-  - Update mastery level
-       ↓
-Update Firestore
-       ↓
-Show next card
+app/services/
+  pipeline.py           — orchestrates OCR → LLM → note creation
+  image_processor.py    — OpenCV pre-processing (perspective, contrast, denoise)
+  ocr_service.py        — EasyOCR wrapper
+  llm_service.py        — multi-provider LLM calls + cache + retry
+  mongodb_service.py    — all MongoDB CRUD + GridFS
+  rag_service.py        — vector index (index_note / remove_note / answer_question)
+  adaptive_learning.py  — SM-2, strengths/weaknesses, recommendations
+  local_storage.py      — fallback image storage
 ```
 
-## Component Architecture
+### MongoDB Collections
 
-### Frontend State Management
+| Collection       | Purpose                                          |
+|------------------|--------------------------------------------------|
+| users            | User accounts (email unique index)               |
+| notes            | Processed academic notes                         |
+| quizzes          | Generated QCM quizzes (linked to notes)          |
+| quiz_results     | Quiz submission history                          |
+| flashcards       | SM-2 flashcards (next_review index)              |
+| flashcard_reviews| Review history per card                          |
+| user_progress    | Study streak, avg score, subject distribution    |
+| sessions         | CourseSession metadata (multi-image flow)        |
+| captures         | Individual image captures within a session       |
 
-```
-┌─────────────────────────────────────────┐
-│           Zustand Stores                │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌───────────────┐   ┌──────────────┐  │
-│  │  AuthStore    │   │  NotesStore  │  │
-│  │  ───────────  │   │  ──────────  │  │
-│  │  • user       │   │  • notes[]   │  │
-│  │  • tokens     │   │  • current   │  │
-│  │  • login()    │   │  • fetch()   │  │
-│  │  • logout()   │   │  • create()  │  │
-│  └───────────────┘   └──────────────┘  │
-│                                         │
-│  ┌───────────────┐   ┌──────────────┐  │
-│  │  QuizStore    │   │ FlashcardStore│  │
-│  │  ───────────  │   │  ───────────  │  │
-│  │  • currentQuiz│   │  • cards[]   │  │
-│  │  • answers    │   │  • dueCards  │  │
-│  │  • submit()   │   │  • review()  │  │
-│  └───────────────┘   └──────────────┘  │
-│                                         │
-│  ┌───────────────┐                     │
-│  │  StudyStore   │                     │
-│  │  ───────────  │                     │
-│  │  • progress   │                     │
-│  │  • recommendations                  │
-│  │  • stats      │                     │
-│  └───────────────┘                     │
-│                                         │
-└─────────────────────────────────────────┘
-```
+---
 
-### Backend Service Layer
+## Multi-Image Course Session Flow
+
+The session flow allows a student to photograph multiple pages/boards of a lecture and merge them into one structured note.
 
 ```
-┌─────────────────────────────────────────────┐
-│              Service Layer                   │
-├─────────────────────────────────────────────┤
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │         ImageProcessor              │    │
-│  │  - preprocess()                     │    │
-│  │  - detect_formula_regions()         │    │
-│  │  - OpenCV operations                │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │          OCRService                 │    │
-│  │  - extract_text()                   │    │
-│  │  - EasyOCR / Tesseract              │    │
-│  │  - Multi-language support           │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │         LaTeXService                │    │
-│  │  - extract_formulas()               │    │
-│  │  - Pix2Tex integration              │    │
-│  │  - LaTeX validation                 │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │     SubjectClassifier               │    │
-│  │  - classify()                       │    │
-│  │  - Pattern matching                 │    │
-│  │  - 12 subject categories            │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │         LLMService                  │    │
-│  │  - Multi-provider (OpenAI/Google)   │    │
-│  │  - structure_content()              │    │
-│  │  - generate_summary()               │    │
-│  │  - generate_quiz()                  │    │
-│  │  - Response caching                 │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │    AdaptiveLearningService          │    │
-│  │  - Spaced repetition (SM-2)         │    │
-│  │  - Cognitive level calculation      │    │
-│  │  - Recommendation generation        │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-│  ┌─────────────────────────────────────┐    │
-│  │         DatabaseService             │    │
-│  │  - Firebase Firestore wrapper       │    │
-│  │  - CRUD operations                  │    │
-│  └─────────────────────────────────────┘    │
-│                                              │
-└─────────────────────────────────────────────┘
+Student                 Frontend              Backend              MongoDB
+  │                        │                     │                    │
+  │── Start session ───────►│                     │                    │
+  │                        │── POST /sessions ───►│── create_session ──►│
+  │                        │◄── { id, status:draft}│                   │
+  │                        │                     │                    │
+  │── Take photo 1 ────────►│                     │                    │
+  │                        │── POST /sessions/{id}/captures/ocr ──────►│
+  │                        │      (multipart image)                    │
+  │                        │◄── Capture { id, raw_text, confidence }   │
+  │── Edit OCR text ───────►│                     │                    │
+  │                        │── PATCH /sessions/{id}/captures/{cid} ───►│
+  │                        │                     │                    │
+  │── Take photo 2 ─── (repeat) ────────────────────────────────────── │
+  │                        │                     │                    │
+  │── Finalize ─────────────►│                    │                    │
+  │                        │── POST /sessions/{id}/finalize ──────────►│
+  │                        │      LLM: merge_captures_to_course        │
+  │                        │      LLM: generate_summary                │
+  │                        │      LLM: generate_quiz (QCM only)        │
+  │                        │      LLM: generate_flashcards             │
+  │                        │◄── { note_id, quiz_id, flashcards_count } │
+  │◄── Navigate to note ───│                     │                    │
 ```
 
-## Database Schema
+---
 
-### Firestore Collections
-
-```
-users/{userId}
-├── id: string
-├── email: string
-├── full_name: string
-├── institution: string
-├── cognitive_level: string
-├── preferred_subjects: string[]
-├── created_at: timestamp
-└── is_premium: boolean
-
-notes/{noteId}
-├── id: string
-├── user_id: string (ref)
-├── title: string
-├── subject: string
-├── tags: string[]
-├── original_image_url: string
-├── processed_content: map
-│   ├── title: string
-│   ├── sections: array
-│   ├── definitions: array
-│   ├── examples: array
-│   └── key_concepts: array
-├── raw_text: string
-├── summary: string
-├── latex_formulas: array
-├── quizzes: string[] (refs)
-├── flashcards: string[] (refs)
-├── created_at: timestamp
-└── cognitive_level: string
-
-quizzes/{quizId}
-├── id: string
-├── note_id: string (ref)
-├── title: string
-├── questions: array
-│   └── { id, type, question, options, correct_answer, explanation, difficulty, points }
-├── total_points: number
-├── estimated_time: number
-└── created_at: timestamp
-
-flashcards/{cardId}
-├── id: string
-├── note_id: string (ref)
-├── front: string
-├── back: string
-├── difficulty: string
-├── tags: string[]
-├── last_reviewed: timestamp
-├── next_review: timestamp
-├── review_count: number
-└── mastery_level: number
-
-quiz_results/{resultId}
-├── id: string
-├── user_id: string (ref)
-├── quiz_id: string (ref)
-├── score: number
-├── total_points: number
-├── earned_points: number
-├── correct_answers: number
-├── incorrect_answers: number
-├── time_taken: number
-├── detailed_feedback: array
-├── weak_areas: string[]
-├── recommendations: string[]
-└── created_at: timestamp
-
-user_progress/{userId}
-├── user_id: string
-├── total_notes: number
-├── total_quizzes_taken: number
-├── average_score: number
-├── study_streak: number
-├── last_activity: timestamp
-├── subject_distribution: map
-├── weak_areas: string[]
-└── strengths: string[]
-```
-
-## Security Architecture
-
-### Authentication Flow
+## Single-Image Capture Flow
 
 ```
-┌─────────┐      ┌─────────────┐      ┌─────────────┐
-│  Client │ ───→ │  /auth/     │ ───→ │   Verify    │
-│         │      │  login      │      │   Password  │
-│         │      │             │      │   (bcrypt)  │
-└─────────┘      └─────────────┘      └──────┬──────┘
-     ↑                                        │
-     │         ┌──────────────────────────────┘
-     │         ↓
-     │    ┌──────────┐
-     └──← │  Return  │
-          │  Tokens  │
-          │  (JWT)   │
-          └──────────┘
+Photo → ImageProcessor → OCR → (user corrects text) → POST /notes/from-text
+                                                              │
+                                            LLM: structure_content
+                                            LLM: generate_summary
+                                            LLM: generate_quiz (QCM)
+                                            LLM: generate_flashcards
+                                            RAG: index_note
+                                                              │
+                                                        MongoDB: create_note
 ```
 
-### JWT Token Structure
+---
 
-```json
-{
-  "sub": "user-id",
-  "exp": 1234567890,
-  "type": "access",
-  "iat": 1234567800
+## SM-2 Spaced Repetition
+
+Flashcard reviews use the SuperMemo 2 algorithm implemented in `adaptive_learning.py`:
+
+```python
+compute_sm2(card, rating 1-5) → {
+    next_review: datetime,
+    easiness_factor: float,   # starts at 2.5
+    repetitions: int,
+    interval: int,            # days
 }
 ```
 
-### Authorization
+The `GET /flashcards/due` endpoint returns cards where `next_review ≤ now`, sorted by urgency, with a configurable `limit` (default 20, max 100).
 
-- All protected routes use `get_current_user` dependency
-- Token validation on every request
-- Resource ownership verification
-- CORS protection configured
+---
 
-## Performance Considerations
+## Authentication
 
-### Caching Strategy
+- Registration: `POST /auth/register` → `{ access_token, refresh_token }`
+- Login: `POST /auth/login` (form data) → `{ access_token, refresh_token }`
+- Refresh: `POST /auth/refresh` (body: `{ refresh_token }`) → `{ access_token }`
+- All protected routes require `Authorization: Bearer <access_token>`
+- Access token TTL: 30 minutes; refresh token TTL: 30 days
 
-1. **LLM Response Cache**: In-memory cache for identical prompts (TTL: 1 hour)
-2. **Image Processing**: Processed images cached in memory during request
-3. **Firebase**: Firestore offline persistence enabled on client
+---
 
-### Optimization Techniques
+## Error Handling
 
-1. **Lazy Loading**: AI models loaded on first use
-2. **Pagination**: API responses paginated (default: 50 items)
-3. **Image Compression**: Images resized before processing (max: 2000px width)
-4. **Debouncing**: Search input debounced (300ms)
+| Scenario                        | HTTP Status |
+|---------------------------------|-------------|
+| Resource not found / not owned  | 404         |
+| Invalid credentials             | 401         |
+| MongoDB not connected           | 503         |
+| Rate limit exceeded             | 429         |
+| File too large (>MAX_UPLOAD)    | 413         |
+| Validation error                | 422         |
 
-## Scalability
+`ServiceUnavailableError` is raised by MongoDB write methods when `self.db is None` and mapped to 503 by the exception handler in `main.py`.
 
-### Horizontal Scaling
+---
 
-- Stateless backend design
-- Firebase handles database scaling
-- Cloud Storage for images
-- Load balancer ready
+## Security
 
-### Future Improvements
-
-1. Redis for distributed caching
-2. Message queue for async processing
-3. CDN for image delivery
-4. Microservices architecture (optional)
-
-## Monitoring & Logging
-
-### Logging Levels
-
-- INFO: General operations
-- WARNING: Recoverable errors
-- ERROR: Critical failures
-
-### Key Metrics
-
-- Processing time per image
-- OCR confidence scores
-- API response times
-- Quiz completion rates
-- Flashcard review accuracy
+- CORS: strict allowlist (`_DEFAULT_DEV_ORIGINS`); `ValueError` in prod if `ALLOWED_ORIGINS` is not set
+- Flashcard ownership: verified through parent note (`get_flashcard → get_note → check user_id`)
+- Note delete: cascades to quizzes, flashcards, and RAG index
+- Password hashing: bcrypt via passlib
+- SQL/NoSQL injection: parameterized queries only (MongoDB driver handles escaping)
