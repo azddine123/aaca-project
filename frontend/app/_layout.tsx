@@ -19,6 +19,10 @@ export default function RootLayout() {
                                 options={{ headerShown: false, presentation: 'modal' }}
                             />
                             <Stack.Screen
+                                name="session-new"
+                                options={{ headerShown: false, presentation: 'modal' }}
+                            />
+                            <Stack.Screen
                                 name="note-detail"
                                 options={{ headerShown: false }}
                             />

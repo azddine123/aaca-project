@@ -98,7 +98,7 @@ export default function RegisterScreen() {
                 </View>
 
                 <Text style={styles.title}>Créer un compte</Text>
-                <Text style={styles.subtitle}>Rejoignez des milliers d'étudiants qui étudient mieux.</Text>
+                <Text style={styles.subtitle}>{"Rejoignez des milliers d'étudiants qui étudient mieux."}</Text>
 
                 {/* Form card */}
                 <View style={styles.card}>

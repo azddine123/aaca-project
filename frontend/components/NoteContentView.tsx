@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         marginBottom: SIZES.xs,
     },
-    sectionLabelText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+    sectionLabelText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0 },
 
     defCard: { borderRadius: 10, borderWidth: 1, padding: SIZES.sm, gap: 5 },
     term: { fontSize: SIZES.fontSm, fontWeight: '700' },

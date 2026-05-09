@@ -4,24 +4,26 @@ import {
     ActivityIndicator, Alert, Image, TextInput,
     ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
-import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
+import { useAppColors } from '@/contexts/AppearanceContext';
+import { AacaButton, AacaCard, StatusBadge } from '@/components/UIKit';
+import { ZelligePattern } from '@/components/ZelligePattern';
 import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS } from '@/theme';
 
-// idle → ocr → review → processing → done | error
+// idle -> ocr -> review -> processing -> done | error
 type Step = 'idle' | 'ocr' | 'review' | 'processing' | 'done' | 'error';
 
 const STEPS = [
-    { label: 'Sélection',  icon: 'camera-outline' },
+    { label: 'Photo', icon: 'camera-outline' },
+    { label: 'OCR', icon: 'text-recognition' },
     { label: 'Correction', icon: 'text-box-check-outline' },
-    { label: 'Résultat',   icon: 'check-circle-outline' },
+    { label: 'Note', icon: 'check-circle-outline' },
 ];
 
 interface ProcessResult {
@@ -29,57 +31,62 @@ interface ProcessResult {
     processing_time: number; detected_subject?: string; title: string;
 }
 
+function stepIndex(step: Step): number {
+    if (step === 'idle') return 0;
+    if (step === 'ocr') return 1;
+    if (step === 'review') return 2;
+    return 3;
+}
+
 function StepIndicator({ step, C }: { step: Step; C: any }) {
-    const active = step === 'idle' ? 0
-        : (step === 'ocr' || step === 'review') ? 1
-        : 2;
+    const active = stepIndex(step);
     return (
         <View style={si.wrap}>
             {STEPS.map((s, i) => {
-                const done    = i < active;
-                const current = i === active;
+                const done = i < active || step === 'done';
+                const current = i === active && step !== 'done';
                 return (
-                    <React.Fragment key={i}>
+                    <React.Fragment key={s.label}>
                         <View style={si.stepCol}>
                             <View style={[
                                 si.circle,
-                                done    && { backgroundColor: C.success, borderColor: C.success },
-                                current && { borderColor: C.primary, backgroundColor: C.primary + '20' },
-                                !done && !current && { borderColor: C.border, backgroundColor: C.surface },
+                                { borderColor: C.border, backgroundColor: C.surface },
+                                done && { backgroundColor: C.success, borderColor: C.success },
+                                current && { borderColor: C.primary, backgroundColor: C.primary + '14' },
                             ]}>
                                 {done
                                     ? <MaterialCommunityIcons name="check" size={13} color="#fff" />
-                                    : <MaterialCommunityIcons
-                                        name={s.icon as any}
-                                        size={13}
-                                        color={current ? C.primary : C.textMuted}
-                                      />
+                                    : <MaterialCommunityIcons name={s.icon as any} size={13} color={current ? C.primary : C.textMuted} />
                                 }
                             </View>
-                            <Text style={[si.label, { color: (done || current) ? C.textSecondary : C.textMuted }]}>{s.label}</Text>
+                            <Text style={[si.label, { color: current ? C.primary : C.textMuted }]}>{s.label}</Text>
                         </View>
-                        {i < STEPS.length - 1 && (
+                        {i < STEPS.length - 1 ? (
                             <View style={[si.line, { backgroundColor: done ? C.success : C.border }]} />
-                        )}
+                        ) : null}
                     </React.Fragment>
                 );
             })}
         </View>
     );
 }
-const si = StyleSheet.create({
-    wrap:    { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl },
-    stepCol: { alignItems: 'center', gap: 4 },
-    circle:  { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
-    label:   { fontSize: 9, fontWeight: '600' },
-    line:    { flex: 1, height: 1.5, marginTop: 14, marginHorizontal: 4 },
-});
+
+function ScannerFrame({ C }: { C: any }) {
+    return (
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+            <View style={[sf.corner, sf.tl, { borderColor: C.primary }]} />
+            <View style={[sf.corner, sf.tr, { borderColor: C.primary }]} />
+            <View style={[sf.corner, sf.bl, { borderColor: C.primary }]} />
+            <View style={[sf.corner, sf.br, { borderColor: C.primary }]} />
+            <View style={[sf.scanLine, { backgroundColor: C.primary + '50' }]} />
+        </View>
+    );
+}
 
 export default function CaptureScreen() {
     const { authFetch } = useAuth();
     const { fetchNotes } = useNotes();
     const C = useAppColors();
-    const G = useAppGradients();
     const styles = useMemo(() => makeStyles(C), [C]);
 
     const [step, setStep] = useState<Step>('idle');
@@ -88,7 +95,6 @@ export default function CaptureScreen() {
     const [result, setResult] = useState<ProcessResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
 
-    // ── Step 1: OCR only ───────────────────────────────────────────────
     const runOcr = async (uri: string) => {
         setStep('ocr');
         try {
@@ -108,7 +114,6 @@ export default function CaptureScreen() {
         }
     };
 
-    // ── Step 2: Create note from corrected text ────────────────────────
     const createNote = async () => {
         if (!rawText.trim()) {
             Alert.alert('Texte vide', 'Veuillez saisir ou corriger le texte extrait.');
@@ -171,14 +176,16 @@ export default function CaptureScreen() {
 
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                     <MaterialCommunityIcons name="arrow-left" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Capturer une note</Text>
+                <View style={styles.headerCopy}>
+                    <Text style={styles.headerTitle}>Scanner académique</Text>
+                    <Text style={styles.headerSub}>Photo, OCR, correction, note</Text>
+                </View>
                 {step !== 'idle' && step !== 'ocr' ? (
-                    <TouchableOpacity onPress={reset} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <TouchableOpacity onPress={reset} style={styles.iconBtn}>
                         <MaterialCommunityIcons name="refresh" size={20} color={C.textSecondary} />
                     </TouchableOpacity>
                 ) : (
@@ -188,21 +195,24 @@ export default function CaptureScreen() {
 
             <StepIndicator step={step} C={C} />
 
-            {/* ── Review step ── */}
             {step === 'review' ? (
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.reviewScroll}>
-                    <View style={[styles.reviewCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                    <AacaCard style={styles.reviewCard}>
                         <View style={styles.reviewHeader}>
-                            <View style={[styles.reviewIconWrap, { backgroundColor: C.primary + '18' }]}>
+                            <View style={[styles.reviewIconWrap, { backgroundColor: C.primary + '14' }]}>
                                 <MaterialCommunityIcons name="text-box-check-outline" size={18} color={C.primary} />
                             </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.reviewTitle}>Vérifiez le texte extrait</Text>
-                                <Text style={styles.reviewHint}>Corrigez les erreurs OCR si nécessaire.</Text>
+                            <View style={styles.reviewCopy}>
+                                <Text style={styles.reviewTitle}>Texte extrait</Text>
+                                <Text style={styles.reviewHint}>Corrigez uniquement ce qui est nécessaire avant la génération.</Text>
                             </View>
+                            <StatusBadge label="À corriger" tone="warning" />
                         </View>
+                        {preview ? (
+                            <Image source={{ uri: preview }} style={styles.reviewThumb} resizeMode="cover" />
+                        ) : null}
                         <TextInput
-                            style={[styles.textEditor, { backgroundColor: C.surfaceMid, borderColor: C.border, color: C.textPrimary }]}
+                            style={styles.textEditor}
                             value={rawText}
                             onChangeText={setRawText}
                             multiline
@@ -211,129 +221,104 @@ export default function CaptureScreen() {
                             placeholderTextColor={C.textMuted}
                         />
                         <View style={styles.reviewActions}>
-                            <TouchableOpacity
-                                style={[styles.secondaryBtn, { borderColor: C.border }]}
-                                onPress={reset}
-                                activeOpacity={0.8}
-                            >
-                                <MaterialCommunityIcons name="close" size={16} color={C.textSecondary} />
-                                <Text style={[styles.secondaryBtnText, { color: C.textSecondary }]}>Annuler</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.primaryBtn, { opacity: !rawText.trim() ? 0.4 : 1 }]}
+                            <AacaButton label="Annuler" icon="close" variant="ghost" onPress={reset} full />
+                            <AacaButton
+                                label="Générer"
+                                icon="brain"
                                 onPress={createNote}
                                 disabled={!rawText.trim()}
-                                activeOpacity={0.85}
-                            >
-                                <LinearGradient colors={G.primary} style={styles.primaryGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-                                    <MaterialCommunityIcons name="brain" size={16} color="#fff" />
-                                    <Text style={styles.primaryBtnText}>Générer avec l'IA</Text>
-                                </LinearGradient>
-                            </TouchableOpacity>
+                                full
+                            />
                         </View>
-                    </View>
+                    </AacaCard>
                 </ScrollView>
             ) : (
                 <>
-                    {/* Preview area */}
                     <View style={styles.previewWrapper}>
-                        {preview ? (
-                            <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="cover" />
-                        ) : (
-                            <View style={styles.placeholder}>
-                                <View style={[styles.placeholderIcon, { backgroundColor: C.primary + '15' }]}>
-                                    <MaterialCommunityIcons name="image-area" size={40} color={C.primary} />
-                                </View>
-                                <Text style={styles.placeholderText}>Prenez une photo de votre cours</Text>
-                                <Text style={styles.placeholderSub}>Le texte sera extrait automatiquement par OCR</Text>
+                        <View style={styles.previewTop}>
+                            <StatusBadge
+                                label={step === 'ocr' ? 'OCR en cours' : step === 'processing' ? 'Génération IA' : preview ? 'Image prête' : 'En attente'}
+                                tone={step === 'ocr' || step === 'processing' ? 'info' : preview ? 'success' : 'pending'}
+                            />
+                            <Text style={styles.previewHint}>Alignez la page dans le cadre</Text>
+                        </View>
+                        <View style={styles.scanArea}>
+                            <View style={styles.scanPattern}>
+                                <ZelligePattern color={C.primary} opacity={1} tileSize={28} cols={10} rows={8} />
                             </View>
-                        )}
-
-                        {/* OCR loading overlay */}
-                        {step === 'ocr' && (
-                            <View style={styles.overlay}>
-                                <View style={[styles.overlayCard, { backgroundColor: C.surface }]}>
-                                    <ActivityIndicator size="large" color={C.primary} />
-                                    <Text style={[styles.overlayTitle, { color: C.textPrimary }]}>Extraction en cours…</Text>
-                                    <Text style={{ color: C.textSecondary, fontSize: SIZES.fontSm }}>OCR analyse votre image</Text>
-                                </View>
-                            </View>
-                        )}
-
-                        {/* AI processing overlay */}
-                        {step === 'processing' && (
-                            <View style={styles.overlay}>
-                                <View style={[styles.overlayCard, { backgroundColor: C.surface }]}>
-                                    <ActivityIndicator size="large" color={C.primary} />
-                                    <Text style={[styles.overlayTitle, { color: C.textPrimary }]}>Génération IA…</Text>
-                                    <View style={styles.processingTags}>
-                                        {['Résumé', 'Quiz', 'Flashcards'].map(tag => (
-                                            <View key={tag} style={[styles.processingTag, { backgroundColor: C.primary + '20', borderColor: C.primary + '40' }]}>
-                                                <Text style={{ fontSize: 10, fontWeight: '600', color: C.primary }}>{tag}</Text>
-                                            </View>
-                                        ))}
+                            {preview ? (
+                                <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="cover" />
+                            ) : (
+                                <View style={styles.placeholder}>
+                                    <View style={[styles.placeholderIcon, { backgroundColor: C.primary + '12' }]}>
+                                        <MaterialCommunityIcons name="image-area" size={38} color={C.primary} />
                                     </View>
+                                    <Text style={styles.placeholderText}>Photographiez une page de cours</Text>
+                                    <Text style={styles.placeholderSub}>AACA extraira le texte sans modifier votre parcours OCR.</Text>
                                 </View>
-                            </View>
-                        )}
+                            )}
+                            <ScannerFrame C={C} />
+
+                            {isWorking ? (
+                                <View style={styles.overlay}>
+                                    <AacaCard style={styles.overlayCard}>
+                                        <ActivityIndicator size="large" color={C.primary} />
+                                        <Text style={styles.overlayTitle}>{step === 'ocr' ? 'Extraction OCR' : 'Génération IA'}</Text>
+                                        <Text style={styles.overlaySub}>
+                                            {step === 'ocr' ? 'Analyse de l\'image en cours' : 'Résumé, quiz et flashcards'}
+                                        </Text>
+                                    </AacaCard>
+                                </View>
+                            ) : null}
+                        </View>
                     </View>
 
-                    {/* Success banner */}
-                    {step === 'done' && result && (
-                        <View style={[styles.banner, { backgroundColor: C.success + '18', borderColor: C.success + '40' }]}>
-                            <MaterialCommunityIcons name="check-circle" size={20} color={C.success} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.bannerTitle, { color: C.textPrimary }]}>Note créée avec succès !</Text>
-                                {result.flashcards_count > 0 && (
-                                    <Text style={{ color: C.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 }}>
+                    {step === 'done' && result ? (
+                        <View style={styles.bannerWrap}>
+                            <AacaCard style={styles.banner}>
+                                <MaterialCommunityIcons name="check-circle" size={22} color={C.success} />
+                                <View style={styles.bannerCopy}>
+                                    <Text style={styles.bannerTitle}>Note créée</Text>
+                                    <Text style={styles.bannerSub}>
                                         {result.flashcards_count} flashcards · {result.quiz_id ? 'Quiz disponible' : 'Pas de quiz'}
                                     </Text>
-                                )}
-                            </View>
-                            <TouchableOpacity
-                                style={[styles.bannerBtn, { backgroundColor: C.success }]}
-                                onPress={() => router.push({ pathname: '/note-detail', params: { id: result.note_id } })}
-                                activeOpacity={0.85}
-                            >
-                                <Text style={styles.bannerBtnText}>Voir</Text>
-                            </TouchableOpacity>
+                                </View>
+                                <AacaButton
+                                    label="Voir"
+                                    size="sm"
+                                    color={C.success}
+                                    onPress={() => router.push({ pathname: '/note-detail', params: { id: result.note_id } })}
+                                />
+                            </AacaCard>
                         </View>
-                    )}
+                    ) : null}
 
-                    {/* Error banner */}
-                    {step === 'error' && (
-                        <View style={[styles.banner, { backgroundColor: C.error + '18', borderColor: C.error + '40' }]}>
-                            <MaterialCommunityIcons name="alert-circle-outline" size={20} color={C.error} />
-                            <Text style={{ color: C.error, flex: 1, fontSize: SIZES.fontXs, lineHeight: 18 }}>{errorMsg}</Text>
-                            <TouchableOpacity onPress={reset} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={{ color: C.error, fontWeight: '700', fontSize: SIZES.fontSm }}>Réessayer</Text>
-                            </TouchableOpacity>
+                    {step === 'error' ? (
+                        <View style={styles.bannerWrap}>
+                            <AacaCard style={styles.banner}>
+                                <MaterialCommunityIcons name="alert-circle-outline" size={22} color={C.error} />
+                                <Text style={styles.errorText}>{errorMsg}</Text>
+                                <AacaButton label="Réessayer" size="sm" variant="secondary" color={C.error} onPress={reset} />
+                            </AacaCard>
                         </View>
-                    )}
+                    ) : null}
 
-                    {/* Action buttons */}
                     <View style={styles.actionsRow}>
-                        <TouchableOpacity
-                            style={[styles.actionBtn, isWorking && { opacity: 0.5 }]}
+                        <AacaButton
+                            label="Caméra"
+                            icon="camera-outline"
                             onPress={() => pickImage(true)}
                             disabled={isWorking}
-                            activeOpacity={0.85}
-                        >
-                            <LinearGradient colors={G.primary} style={styles.actionGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-                                <MaterialCommunityIcons name="camera-outline" size={22} color="#fff" />
-                                <Text style={styles.actionBtnText}>Caméra</Text>
-                            </LinearGradient>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={[styles.actionBtnOutline, { borderColor: C.primary }, isWorking && { opacity: 0.5 }]}
+                            full
+                        />
+                        <AacaButton
+                            label="Galerie"
+                            icon="image-multiple-outline"
+                            variant="secondary"
                             onPress={() => pickImage(false)}
                             disabled={isWorking}
-                            activeOpacity={0.85}
-                        >
-                            <MaterialCommunityIcons name="image-multiple-outline" size={22} color={C.primary} />
-                            <Text style={[styles.actionBtnText, { color: C.primary }]}>Galerie</Text>
-                        </TouchableOpacity>
+                            full
+                        />
                     </View>
                 </>
             )}
@@ -341,66 +326,119 @@ export default function CaptureScreen() {
     );
 }
 
+const si = StyleSheet.create({
+    wrap: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: SIZES.xl, marginBottom: SIZES.lg },
+    stepCol: { alignItems: 'center', gap: 4, width: 54 },
+    circle: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
+    label: { fontSize: 9, fontWeight: '700' },
+    line: { flex: 1, height: 1.5, marginTop: 14, marginHorizontal: -4 },
+});
+
+const sf = StyleSheet.create({
+    corner: { position: 'absolute', width: 40, height: 40, borderWidth: 3 },
+    tl: { top: 18, left: 18, borderRightWidth: 0, borderBottomWidth: 0 },
+    tr: { top: 18, right: 18, borderLeftWidth: 0, borderBottomWidth: 0 },
+    bl: { bottom: 18, left: 18, borderRightWidth: 0, borderTopWidth: 0 },
+    br: { bottom: 18, right: 18, borderLeftWidth: 0, borderTopWidth: 0 },
+    scanLine: { position: 'absolute', left: 22, right: 22, top: '48%', height: 1 },
+});
+
 const makeStyles = (C: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background, paddingTop: 56 },
 
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: SIZES.xl, marginBottom: SIZES.xl,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: SIZES.xl,
+        marginBottom: SIZES.lg,
+        gap: SIZES.sm,
     },
     backBtn: {
-        width: 38, height: 38, borderRadius: 19,
-        backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center',
-        borderWidth: 1, borderColor: C.border,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: C.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: C.border,
     },
-    headerTitle: { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textPrimary },
+    iconBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: C.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: C.border,
+    },
+    headerCopy: { flex: 1, alignItems: 'center' },
+    headerTitle: { fontSize: SIZES.fontLg, fontWeight: '800', color: C.textPrimary },
+    headerSub: { fontSize: SIZES.fontXs, color: C.textMuted, marginTop: 2, fontWeight: '600' },
 
-    // Review step
     reviewScroll: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxl },
-    reviewCard: { borderRadius: SIZES.borderRadiusLg, padding: SIZES.md, borderWidth: 1, gap: SIZES.md, ...SHADOWS.sm },
-    reviewHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm },
-    reviewIconWrap: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-    reviewTitle: { fontSize: SIZES.fontMd, fontWeight: '700', color: C.textPrimary },
-    reviewHint:  { fontSize: SIZES.fontXs, color: C.textSecondary, marginTop: 2 },
-    textEditor:  { borderWidth: 1.5, borderRadius: SIZES.borderRadius, padding: SIZES.md, fontSize: SIZES.fontSm, lineHeight: 22, minHeight: 240 },
-    reviewActions: { flexDirection: 'row', gap: SIZES.sm },
-    primaryBtn:    { flex: 1, borderRadius: SIZES.borderRadius, overflow: 'hidden', ...SHADOWS.primary },
-    primaryGrad:   { height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
-    primaryBtnText:{ color: '#fff', fontWeight: '700', fontSize: SIZES.fontSm },
-    secondaryBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.xs, height: 48, paddingHorizontal: SIZES.md, borderRadius: SIZES.borderRadius, borderWidth: 1.5 },
-    secondaryBtnText: { fontWeight: '600', fontSize: SIZES.fontSm },
-
-    // Preview
-    previewWrapper: {
-        flex: 1, marginHorizontal: SIZES.xl,
-        backgroundColor: C.surface, borderRadius: SIZES.borderRadiusLg,
-        overflow: 'hidden', marginBottom: SIZES.md,
-        borderWidth: 1, borderColor: C.border, ...SHADOWS.sm,
+    reviewCard: { gap: SIZES.md },
+    reviewHeader: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+    reviewIconWrap: { width: 38, height: 38, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center' },
+    reviewCopy: { flex: 1, minWidth: 0 },
+    reviewTitle: { fontSize: SIZES.fontMd, fontWeight: '800', color: C.textPrimary },
+    reviewHint: { fontSize: SIZES.fontXs, color: C.textSecondary, marginTop: 2 },
+    reviewThumb: { width: '100%', height: 126, borderRadius: SIZES.borderRadius, backgroundColor: C.surfaceMid },
+    textEditor: {
+        borderWidth: 1,
+        borderRadius: SIZES.borderRadius,
+        borderColor: C.border,
+        backgroundColor: C.surfaceMid,
+        color: C.textPrimary,
+        padding: SIZES.md,
+        fontSize: SIZES.fontSm,
+        lineHeight: 22,
+        minHeight: 250,
     },
+    reviewActions: { flexDirection: 'row', gap: SIZES.sm },
+
+    previewWrapper: {
+        flex: 1,
+        marginHorizontal: SIZES.xl,
+        marginBottom: SIZES.md,
+        backgroundColor: C.surface,
+        borderRadius: SIZES.borderRadius,
+        borderWidth: 1,
+        borderColor: C.border,
+        overflow: 'hidden',
+        ...SHADOWS.sm,
+    },
+    previewTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: SIZES.sm,
+        padding: SIZES.md,
+        borderBottomWidth: 1,
+        borderBottomColor: C.border,
+    },
+    previewHint: { fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '700' },
+    scanArea: { flex: 1, position: 'relative', overflow: 'hidden', backgroundColor: C.surfaceMid },
+    scanPattern: { ...StyleSheet.absoluteFillObject, opacity: 0.07 },
     previewImage: { width: '100%', height: '100%' },
     placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SIZES.sm, padding: SIZES.xxl },
-    placeholderIcon: { width: 80, height: 80, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.sm },
-    placeholderText: { fontSize: SIZES.fontMd, color: C.textSecondary, textAlign: 'center', fontWeight: '500' },
-    placeholderSub:  { fontSize: SIZES.fontXs, color: C.textMuted, textAlign: 'center', lineHeight: 18 },
+    placeholderIcon: { width: 78, height: 78, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.sm },
+    placeholderText: { fontSize: SIZES.fontMd, color: C.textPrimary, textAlign: 'center', fontWeight: '800' },
+    placeholderSub: { fontSize: SIZES.fontXs, color: C.textSecondary, textAlign: 'center', lineHeight: 18 },
 
-    overlay:     { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
-    overlayCard: { borderRadius: SIZES.borderRadiusLg, padding: SIZES.xl, alignItems: 'center', gap: SIZES.md, minWidth: 200, ...SHADOWS.md },
-    overlayTitle:{ fontSize: SIZES.fontLg, fontWeight: '600' },
-    processingTags: { flexDirection: 'row', gap: SIZES.xs, flexWrap: 'wrap', justifyContent: 'center' },
-    processingTag:  { paddingHorizontal: SIZES.sm, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(23,32,51,0.42)', justifyContent: 'center', alignItems: 'center', padding: SIZES.xl },
+    overlayCard: { alignItems: 'center', gap: SIZES.sm, minWidth: 210 },
+    overlayTitle: { fontSize: SIZES.fontLg, fontWeight: '800', color: C.textPrimary },
+    overlaySub: { color: C.textSecondary, fontSize: SIZES.fontSm, textAlign: 'center' },
 
-    banner: {
-        flexDirection: 'row', alignItems: 'center', gap: SIZES.md,
-        marginHorizontal: SIZES.xl, marginBottom: SIZES.sm,
-        borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1,
-    },
-    bannerTitle:  { fontWeight: '700', fontSize: SIZES.fontSm, color: C.textPrimary },
-    bannerBtn:    { paddingHorizontal: SIZES.md, paddingVertical: 6, borderRadius: SIZES.borderRadiusSm },
-    bannerBtnText:{ color: '#fff', fontWeight: '700', fontSize: SIZES.fontSm },
+    bannerWrap: { paddingHorizontal: SIZES.xl, marginBottom: SIZES.sm },
+    banner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+    bannerCopy: { flex: 1, minWidth: 0 },
+    bannerTitle: { fontWeight: '800', fontSize: SIZES.fontSm, color: C.textPrimary },
+    bannerSub: { color: C.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
+    errorText: { color: C.error, flex: 1, fontSize: SIZES.fontXs, lineHeight: 18, fontWeight: '600' },
 
     actionsRow: { flexDirection: 'row', gap: SIZES.md, paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxl },
-    actionBtn: { flex: 1, borderRadius: SIZES.borderRadius, overflow: 'hidden', ...SHADOWS.primary },
-    actionBtnOutline: { flex: 1, borderRadius: SIZES.borderRadius, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, height: 54 },
-    actionGrad: { height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm },
-    actionBtnText: { color: '#fff', fontWeight: '700', fontSize: SIZES.fontMd },
 });

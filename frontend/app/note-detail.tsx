@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
     View, Text, StyleSheet, ScrollView,
     TouchableOpacity, ActivityIndicator, Alert,
-    TextInput, KeyboardAvoidingView, Platform, Animated,
+    TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -10,6 +10,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNotes } from '@/contexts/NotesContext';
 import { useStudy } from '@/contexts/StudyContext';
 import NoteContentView from '@/components/NoteContentView';
+import { AacaCard, StatusBadge, SubjectBadge } from '@/components/UIKit';
+import { ZelligePattern } from '@/components/ZelligePattern';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { API_URL } from '@/config/api';
@@ -39,13 +41,6 @@ export default function NoteDetailScreen() {
     const [activeTab, setActiveTab] = useState<Tab>('resume');
     const [loadingQuiz, setLoadingQuiz] = useState(false);
     const [loadingCards, setLoadingCards] = useState(false);
-
-    // Tab indicator animation
-    const tabIndex = TABS.findIndex(t => t.key === activeTab);
-    const indicatorAnim = useRef(new Animated.Value(tabIndex)).current;
-    useEffect(() => {
-        Animated.spring(indicatorAnim, { toValue: tabIndex, useNativeDriver: true, tension: 280, friction: 20 }).start();
-    }, [tabIndex]);
 
     // Q&A assistant state
     const [qaMessages, setQaMessages] = useState<QAMessage[]>([]);
@@ -136,41 +131,60 @@ export default function NoteDetailScreen() {
     const createdAt = currentNote.created_at
         ? format(new Date(currentNote.created_at), 'dd MMM yyyy', { locale: fr })
         : '';
+    const concepts = currentNote.processed_content?.key_concepts?.slice(0, 5) ?? [];
+    const flashcardsCount = (currentNote as any).flashcards?.length ?? (currentNote as any).flashcards_count ?? null;
 
     return (
         <View style={styles.container}>
-            {/* ── Header gradient ── */}
             <LinearGradient colors={G.hero} style={styles.header}>
+                <View style={styles.headerPattern}>
+                    <ZelligePattern color={C.primary} opacity={1} tileSize={30} cols={8} rows={4} />
+                </View>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                     <MaterialCommunityIcons name="arrow-left" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
-                <View style={[styles.subjectBadge, { backgroundColor: subjectColor + '25', borderColor: subjectColor + '60' }]}>
-                    <View style={[styles.subjectDot, { backgroundColor: subjectColor }]} />
-                    <Text style={[styles.subjectLabel, { color: subjectColor }]}>
-                        {SUBJECT_LABELS[currentNote.subject] || currentNote.subject || 'Général'}
-                    </Text>
-                </View>
+                <StatusBadge label="Document de cours" tone="info" icon="file-document-edit-outline" />
             </LinearGradient>
 
-            {/* ── Title block ── */}
             <View style={styles.titleBlock}>
+                <View style={styles.metaRow}>
+                    <SubjectBadge
+                        label={SUBJECT_LABELS[currentNote.subject] || currentNote.subject || 'Général'}
+                        color={subjectColor}
+                    />
+                    {createdAt ? (
+                        <View style={styles.datePill}>
+                            <MaterialCommunityIcons name="calendar-outline" size={12} color={C.textMuted} />
+                            <Text style={styles.noteDate}>Créé le {createdAt}</Text>
+                        </View>
+                    ) : null}
+                </View>
                 <Text style={styles.noteTitle} numberOfLines={3}>{currentNote.title}</Text>
-                {createdAt ? (
-                    <View style={styles.datePill}>
-                        <MaterialCommunityIcons name="calendar-outline" size={12} color={C.textMuted} />
-                        <Text style={styles.noteDate}>Créé le {createdAt}</Text>
+                <View style={styles.docStats}>
+                    <View style={styles.docStat}>
+                        <MaterialCommunityIcons name="text-box-outline" size={14} color={C.primary} />
+                        <Text style={styles.docStatText}>Résumé</Text>
                     </View>
-                ) : null}
+                    <View style={styles.docStat}>
+                        <MaterialCommunityIcons name="tag-multiple-outline" size={14} color={C.accent} />
+                        <Text style={styles.docStatText}>{concepts.length} concept{concepts.length > 1 ? 's' : ''}</Text>
+                    </View>
+                    {flashcardsCount != null ? (
+                        <View style={styles.docStat}>
+                            <MaterialCommunityIcons name="cards-outline" size={14} color={C.success} />
+                            <Text style={styles.docStatText}>{flashcardsCount} carte{flashcardsCount > 1 ? 's' : ''}</Text>
+                        </View>
+                    ) : null}
+                </View>
             </View>
 
-            {/* ── Tab bar with animated indicator ── */}
             <View style={styles.tabBar}>
-                {TABS.map((tab, i) => {
+                {TABS.map((tab) => {
                     const active = activeTab === tab.key;
                     return (
                         <TouchableOpacity
                             key={tab.key}
-                            style={styles.tabBtn}
+                            style={[styles.tabBtn, active && styles.tabBtnActive]}
                             onPress={() => setActiveTab(tab.key)}
                             activeOpacity={0.75}
                         >
@@ -185,14 +199,6 @@ export default function NoteDetailScreen() {
                         </TouchableOpacity>
                     );
                 })}
-                {/* Sliding indicator line */}
-                <Animated.View
-                    style={[
-                        styles.tabIndicator,
-                        { backgroundColor: C.primary },
-                        { transform: [{ translateX: Animated.multiply(indicatorAnim, (SIZES.xxxl + SIZES.xl)) }] },
-                    ]}
-                />
             </View>
 
             {/* ── Content ── */}
@@ -210,9 +216,24 @@ export default function NoteDetailScreen() {
                                     <MaterialCommunityIcons name="auto-fix" size={14} color={C.primary} />
                                     <Text style={styles.sectionTitle}>Résumé IA</Text>
                                 </View>
-                                <View style={[styles.summaryCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                                <AacaCard style={styles.summaryCard}>
                                     <Text style={styles.bodyText}>{currentNote.summary}</Text>
-                                </View>
+                                </AacaCard>
+                                {concepts.length > 0 ? (
+                                    <View style={styles.conceptsBlock}>
+                                        <View style={styles.sectionTitleRow}>
+                                            <MaterialCommunityIcons name="tag-multiple-outline" size={14} color={C.accent} />
+                                            <Text style={styles.sectionTitle}>Concepts clés</Text>
+                                        </View>
+                                        <View style={styles.conceptsRow}>
+                                            {concepts.map((concept) => (
+                                                <View key={concept} style={[styles.conceptChip, { backgroundColor: subjectColor + '12', borderColor: subjectColor + '30' }]}>
+                                                    <Text style={[styles.conceptText, { color: subjectColor }]}>{concept}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                ) : null}
                             </View>
                         ) : (
                             <View style={styles.emptyTab}>
@@ -241,7 +262,7 @@ export default function NoteDetailScreen() {
                                 <MaterialCommunityIcons name="school-outline" size={14} color={C.primary} />
                                 <Text style={styles.sectionTitle}>Générer des exercices</Text>
                             </View>
-                            <Text style={styles.studyHint}>L'IA va analyser ce cours et créer des exercices personnalisés.</Text>
+                            <Text style={styles.studyHint}>{"L'IA va analyser ce cours et créer des exercices personnalisés."}</Text>
 
                             {[
                                 { label: 'Quiz adaptatif', desc: 'Questions QCM générées depuis ce cours', icon: 'clipboard-check-outline', color: C.success, loading: loadingQuiz, onPress: handleGenerateQuiz },
@@ -291,7 +312,7 @@ export default function NoteDetailScreen() {
                                         Posez une question sur ce cours
                                     </Text>
                                     <Text style={[styles.assistantEmptySub, { color: C.textMuted }]}>
-                                        L'assistant répond en se basant sur le contenu de la note.
+                                        {"L'assistant répond en se basant sur le contenu de la note."}
                                     </Text>
                                 </View>
                             )}
@@ -314,7 +335,7 @@ export default function NoteDetailScreen() {
                             {qaLoading && (
                                 <View style={[styles.qaMsg, { backgroundColor: C.surface, borderColor: C.border, alignSelf: 'flex-start', flexDirection: 'row', gap: SIZES.sm }]}>
                                     <ActivityIndicator size="small" color={C.primary} />
-                                    <Text style={{ color: C.textMuted, fontSize: SIZES.fontXs }}>L'assistant réfléchit…</Text>
+                                    <Text style={{ color: C.textMuted, fontSize: SIZES.fontXs }}>{"L'assistant réfléchit..."}</Text>
                                 </View>
                             )}
                         </View>
@@ -358,46 +379,50 @@ const makeStyles = (C: any) => StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md,
+        overflow: 'hidden',
     },
+    headerPattern: { position: 'absolute', right: -26, top: 18, width: 230, height: 120, opacity: 0.08 },
     backBtn: {
         width: 38, height: 38, borderRadius: 19,
         backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center',
         borderWidth: 1, borderColor: C.border,
     },
-    subjectBadge: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: SIZES.sm, paddingVertical: 5,
-        borderRadius: SIZES.borderRadiusFull, borderWidth: 1,
-    },
-    subjectDot:  { width: 6, height: 6, borderRadius: 3 },
-    subjectLabel:{ fontSize: SIZES.fontXs, fontWeight: '700' },
-
-    titleBlock: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.md, gap: 6 },
-    noteTitle:  { fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, lineHeight: 34 },
-    datePill:   { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    noteDate:   { fontSize: SIZES.fontXs, color: C.textMuted },
+    titleBlock: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.lg, gap: SIZES.sm },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, flexWrap: 'wrap' },
+    noteTitle:  { fontSize: SIZES.fontXXl, fontWeight: '800', color: C.textPrimary, lineHeight: 34, letterSpacing: 0 },
+    datePill:   { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: C.surfaceMid },
+    noteDate:   { fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '700' },
+    docStats: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs },
+    docStat: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.sm, paddingVertical: 5 },
+    docStatText: { fontSize: SIZES.fontXs, color: C.textSecondary, fontWeight: '700' },
 
     // Tab bar
     tabBar: {
-        flexDirection: 'row', borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.border,
-        backgroundColor: C.surface, position: 'relative',
+        flexDirection: 'row',
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: C.border,
+        backgroundColor: C.surface,
+        padding: 5,
+        gap: 4,
     },
-    tabBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: SIZES.sm + 2 },
+    tabBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius },
+    tabBtnActive: { backgroundColor: C.primary + '12' },
     tabLabel: { fontSize: 11, fontWeight: '600' },
-    tabIndicator: {
-        position: 'absolute', bottom: 0, height: 2, borderRadius: 2,
-        width: `${100 / TABS.length}%` as any,
-    },
 
     // Content
     scrollContent: { padding: SIZES.xl },
 
     section: { gap: SIZES.sm },
     sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SIZES.xs },
-    sectionTitle: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 1 },
+    sectionTitle: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0 },
 
-    summaryCard: { borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, ...SHADOWS.sm },
+    summaryCard: { gap: SIZES.sm },
     bodyText: { fontSize: SIZES.fontMd, lineHeight: 26, color: C.textPrimary },
+    conceptsBlock: { gap: SIZES.sm, marginTop: SIZES.lg },
+    conceptsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs },
+    conceptChip: { borderRadius: SIZES.borderRadiusFull, borderWidth: 1, paddingHorizontal: SIZES.sm, paddingVertical: 5 },
+    conceptText: { fontSize: SIZES.fontXs, fontWeight: '800' },
 
     studyActions: { gap: SIZES.sm },
     studyHint:    { fontSize: SIZES.fontSm, color: C.textSecondary, marginBottom: SIZES.sm },
@@ -423,7 +448,7 @@ const makeStyles = (C: any) => StyleSheet.create({
 
     qaMsg: { maxWidth: '88%', borderRadius: 14, borderWidth: 1, padding: SIZES.sm + 2 },
     assistantHeader: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
-    assistantTag: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+    assistantTag: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0 },
 
     qaBar: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, borderTopWidth: 1 },
     qaInput: { flex: 1, borderWidth: 1, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, fontSize: SIZES.fontSm },

@@ -12,9 +12,9 @@ interface AppearanceContextType {
 }
 
 const AppearanceContext = createContext<AppearanceContextType>({
-    theme: 'dark',
+    theme: 'light',
     setTheme: () => {},
-    isDark: true,
+    isDark: false,
 });
 
 export const useAppearance = () => useContext(AppearanceContext);
@@ -35,7 +35,7 @@ const STORAGE_KEY = '@aaca_theme';
 
 const AppearanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const systemScheme = useColorScheme();
-    const [theme, setThemeState] = useState<Theme>('dark');
+    const [theme, setThemeState] = useState<Theme>('light');
     const [loaded, setLoaded] = useState(false);
 
     // Load persisted theme on mount

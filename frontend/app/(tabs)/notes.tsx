@@ -7,11 +7,11 @@ import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNotes, Note } from '@/contexts/NotesContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
-import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
+import { AacaButton, AacaCard, EmptyState, SubjectBadge } from '@/components/UIKit';
+import { SIZES, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-const ALL_SUBJECTS = ['all', 'mathematics', 'physics', 'chemistry', 'biology', 'cs', 'engineering', 'economics', 'literature', 'history', 'other'];
 const FILTER_LABELS: Record<string, string> = { all: 'Toutes', ...SUBJECT_LABELS };
 
 function formatDate(dateStr: string | undefined): string {
@@ -22,12 +22,26 @@ function formatDate(dateStr: string | undefined): string {
 
 function subjectIcon(subject: string): string {
     const map: Record<string, string> = {
-        mathematics: 'function-variant', physics: 'atom', chemistry: 'flask-outline',
-        biology: 'leaf-outline', cs: 'code-braces', engineering: 'cog-outline',
-        economics: 'chart-areaspline', literature: 'book-open-outline', history: 'castle',
+        mathematics: 'function-variant',
+        physics: 'atom',
+        chemistry: 'flask-outline',
+        biology: 'leaf-outline',
+        cs: 'code-braces',
+        computer_science: 'code-braces',
+        engineering: 'cog-outline',
+        economics: 'chart-areaspline',
+        literature: 'book-open-outline',
+        history: 'castle',
         philosophy: 'lightbulb-outline',
+        french: 'alphabetical-variant',
+        arabic: 'abjad-arabic',
+        geography: 'map-outline',
     };
     return map[subject] || 'file-document-outline';
+}
+
+function notePreview(note: Note): string {
+    return note.preview || note.summary || note.raw_text || 'Fiche de cours générée par AACA.';
 }
 
 export default function NotesScreen() {
@@ -59,27 +73,25 @@ export default function NotesScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
-                <View>
-                    <Text style={styles.headerTitle}>Mes Notes</Text>
-                    <Text style={styles.headerCount}>{notes.length} note{notes.length !== 1 ? 's' : ''}</Text>
+                <View style={styles.headerCopy}>
+                    <Text style={styles.eyebrow}>Bibliothèque</Text>
+                    <Text style={styles.headerTitle}>Mes notes</Text>
+                    <Text style={styles.headerCount}>{filteredNotes.length} fiche{filteredNotes.length !== 1 ? 's' : ''} affichée{filteredNotes.length !== 1 ? 's' : ''}</Text>
                 </View>
-                <TouchableOpacity
-                    style={styles.headerAction}
+                <AacaButton
+                    label="Nouvelle"
+                    icon="camera-plus-outline"
+                    size="sm"
                     onPress={() => router.push('/capture')}
-                    activeOpacity={0.85}
-                >
-                    <MaterialCommunityIcons name="plus" size={20} color="#fff" />
-                </TouchableOpacity>
+                />
             </View>
 
-            {/* Search bar */}
             <View style={styles.searchContainer}>
                 <MaterialCommunityIcons name="magnify" size={18} color={C.textSecondary} />
                 <TextInput
                     style={styles.searchInput}
-                    placeholder="Rechercher dans vos notes…"
+                    placeholder="Rechercher un cours, une formule, un concept..."
                     placeholderTextColor={C.textMuted}
                     value={query}
                     onChangeText={handleSearch}
@@ -92,7 +104,6 @@ export default function NotesScreen() {
                 )}
             </View>
 
-            {/* Subject filter chips */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow} style={styles.filtersScroll}>
                 {subjectsWithNotes.map((subject) => {
                     const isActive = activeFilter === subject;
@@ -100,14 +111,21 @@ export default function NotesScreen() {
                     return (
                         <TouchableOpacity
                             key={subject}
-                            style={[styles.chip, isActive && { backgroundColor: color, borderColor: color }]}
+                            style={[
+                                styles.chip,
+                                { borderColor: isActive ? color : C.border, backgroundColor: isActive ? color : C.surface },
+                            ]}
                             onPress={() => setActiveFilter(subject)}
-                            activeOpacity={0.75}
+                            activeOpacity={0.76}
                         >
-                            {subject !== 'all' && (
-                                <View style={[styles.chipDot, { backgroundColor: isActive ? '#fff' : color }]} />
-                            )}
-                            <Text style={[styles.chipText, isActive && { color: '#fff' }]}>
+                            {subject !== 'all' ? (
+                                <MaterialCommunityIcons
+                                    name={subjectIcon(subject) as any}
+                                    size={13}
+                                    color={isActive ? '#fff' : color}
+                                />
+                            ) : null}
+                            <Text style={[styles.chipText, { color: isActive ? '#fff' : C.textSecondary }]}>
                                 {FILTER_LABELS[subject] || subject}
                             </Text>
                         </TouchableOpacity>
@@ -115,7 +133,6 @@ export default function NotesScreen() {
                 })}
             </ScrollView>
 
-            {/* Notes list */}
             <FlatList
                 data={filteredNotes}
                 keyExtractor={(item: any) => item.id}
@@ -124,56 +141,60 @@ export default function NotesScreen() {
                 }
                 contentContainerStyle={[styles.list, filteredNotes.length === 0 && styles.listEmpty]}
                 ListEmptyComponent={
-                    <View style={styles.empty}>
-                        <View style={[styles.emptyIconWrap, { backgroundColor: C.primary + '18' }]}>
-                            <MaterialCommunityIcons name="notebook-plus-outline" size={32} color={C.primary} />
-                        </View>
-                        <Text style={styles.emptyTitle}>{query.length > 0 ? 'Aucun résultat' : 'Aucune note'}</Text>
-                        <Text style={styles.emptySub}>
-                            {query.length > 0
-                                ? `Aucune note ne correspond à "${query}"`
-                                : 'Capturez votre première note depuis le bouton central.'}
-                        </Text>
-                        {query.length === 0 && (
-                            <TouchableOpacity
-                                style={[styles.emptyBtn, { backgroundColor: C.primary }]}
-                                onPress={() => router.push('/capture')}
-                                activeOpacity={0.85}
-                            >
-                                <MaterialCommunityIcons name="camera-plus-outline" size={16} color="#fff" />
-                                <Text style={styles.emptyBtnText}>Capturer une note</Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
+                    <EmptyState
+                        icon={query.length > 0 ? 'file-search-outline' : 'notebook-plus-outline'}
+                        title={query.length > 0 ? 'Aucun résultat' : 'Aucune note'}
+                        subtitle={query.length > 0
+                            ? `Aucune fiche ne correspond à "${query}".`
+                            : 'Capturez votre première page ou lancez une séance multi-images.'}
+                        actionLabel={query.length === 0 ? 'Capturer une note' : undefined}
+                        onAction={query.length === 0 ? () => router.push('/capture') : undefined}
+                    />
                 }
                 renderItem={({ item }: { item: Note }) => {
                     const color = SUBJECT_COLORS[item.subject] || C.primary;
-                    const icon = subjectIcon(item.subject);
+                    const flashcards = (item as any).flashcards?.length ?? (item as any).flashcards_count ?? 0;
+                    const concepts = item.processed_content?.key_concepts?.slice(0, 2) ?? [];
                     return (
                         <TouchableOpacity
-                            style={styles.card}
                             onPress={() => router.push({ pathname: '/note-detail', params: { id: item.id } })}
-                            activeOpacity={0.8}
+                            activeOpacity={0.84}
                         >
-                            <View style={[styles.cardAccent, { backgroundColor: color }]} />
-                            <View style={[styles.cardIcon, { backgroundColor: color + '20' }]}>
-                                <MaterialCommunityIcons name={icon as any} size={20} color={color} />
-                            </View>
-                            <View style={styles.cardContent}>
-                                <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-                                {(item.preview || item.raw_text) ? (
-                                    <Text style={styles.cardPreview} numberOfLines={2}>{item.preview || item.raw_text}</Text>
-                                ) : null}
-                                <View style={styles.cardFooter}>
-                                    <View style={[styles.subjectPill, { backgroundColor: color + '18' }]}>
-                                        <View style={[styles.subjectDot, { backgroundColor: color }]} />
-                                        <Text style={[styles.cardSubject, { color }]}>{SUBJECT_LABELS[item.subject] || 'Autre'}</Text>
+                            <AacaCard accentColor={color} style={styles.card}>
+                                <View style={styles.cardHeader}>
+                                    <View style={[styles.iconBox, { backgroundColor: color + '14' }]}>
+                                        <MaterialCommunityIcons name={subjectIcon(item.subject) as any} size={20} color={color} />
                                     </View>
-                                    <Text style={styles.cardDot}>·</Text>
-                                    <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
+                                    <View style={styles.cardTitleWrap}>
+                                        <SubjectBadge label={SUBJECT_LABELS[item.subject] || 'Autre'} color={color} />
+                                        <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+                                    </View>
+                                    <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
                                 </View>
-                            </View>
-                            <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
+
+                                <Text style={styles.cardPreview} numberOfLines={3}>{notePreview(item)}</Text>
+
+                                {concepts.length > 0 ? (
+                                    <View style={styles.conceptsRow}>
+                                        {concepts.map((concept) => (
+                                            <View key={concept} style={[styles.conceptChip, { backgroundColor: C.surfaceMid }]}>
+                                                <Text style={styles.conceptText} numberOfLines={1}>{concept}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                ) : null}
+
+                                <View style={styles.cardFooter}>
+                                    <View style={styles.metaItem}>
+                                        <MaterialCommunityIcons name="calendar-outline" size={13} color={C.textMuted} />
+                                        <Text style={styles.metaText}>{formatDate(item.created_at)}</Text>
+                                    </View>
+                                    <View style={styles.metaItem}>
+                                        <MaterialCommunityIcons name="cards-outline" size={13} color={C.textMuted} />
+                                        <Text style={styles.metaText}>{flashcards} carte{flashcards !== 1 ? 's' : ''}</Text>
+                                    </View>
+                                </View>
+                            </AacaCard>
                         </TouchableOpacity>
                     );
                 }}
@@ -186,62 +207,60 @@ const makeStyles = (C: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
 
     header: {
-        flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
-        paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md,
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        paddingHorizontal: SIZES.xl,
+        paddingTop: 56,
+        paddingBottom: SIZES.md,
+        gap: SIZES.md,
     },
-    headerTitle: { fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.5 },
-    headerCount: { fontSize: SIZES.fontXs, color: C.textMuted, marginTop: 2 },
-    headerAction: {
-        width: 38, height: 38, borderRadius: 19, backgroundColor: C.primary,
-        justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary,
-    },
+    headerCopy: { flex: 1, minWidth: 0 },
+    eyebrow: { fontSize: SIZES.fontXs, color: C.primary, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0 },
+    headerTitle: { fontSize: SIZES.fontXXl, fontWeight: '800', color: C.textPrimary, letterSpacing: 0 },
+    headerCount: { fontSize: SIZES.fontXs, color: C.textMuted, marginTop: 2, fontWeight: '600' },
 
     searchContainer: {
-        flexDirection: 'row', alignItems: 'center', gap: SIZES.sm,
-        marginHorizontal: SIZES.xl, marginBottom: SIZES.sm,
-        backgroundColor: C.surface, borderRadius: SIZES.borderRadius,
-        paddingHorizontal: SIZES.md, height: 46,
-        borderWidth: 1, borderColor: C.border,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SIZES.sm,
+        marginHorizontal: SIZES.xl,
+        marginBottom: SIZES.sm,
+        backgroundColor: C.surface,
+        borderRadius: SIZES.borderRadius,
+        paddingHorizontal: SIZES.md,
+        height: 48,
+        borderWidth: 1,
+        borderColor: C.border,
     },
-    searchInput: { flex: 1, color: C.textPrimary, fontSize: SIZES.fontMd, height: '100%' },
+    searchInput: { flex: 1, color: C.textPrimary, fontSize: SIZES.fontSm, height: '100%' },
 
     filtersScroll: { flexGrow: 0 },
-    filtersRow: { paddingHorizontal: SIZES.xl, gap: SIZES.xs, paddingBottom: SIZES.sm },
+    filtersRow: { paddingHorizontal: SIZES.xl, gap: SIZES.xs, paddingBottom: SIZES.md },
     chip: {
-        flexDirection: 'row', alignItems: 'center', gap: 5,
-        paddingHorizontal: SIZES.md, paddingVertical: 7,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: SIZES.md,
+        paddingVertical: 8,
         borderRadius: SIZES.borderRadiusFull,
-        backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+        borderWidth: 1,
     },
-    chipDot: { width: 6, height: 6, borderRadius: 3 },
-    chipText: { fontSize: SIZES.fontXs, fontWeight: '600', color: C.textSecondary },
+    chipText: { fontSize: SIZES.fontXs, fontWeight: '700' },
 
-    list: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxxl },
+    list: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxxl, gap: SIZES.md },
     listEmpty: { flex: 1 },
 
-    card: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: C.surface, borderRadius: SIZES.borderRadius,
-        marginBottom: SIZES.sm, overflow: 'hidden',
-        borderWidth: 1, borderColor: C.border,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
-    },
-    cardAccent:  { width: 3, alignSelf: 'stretch' },
-    cardIcon:    { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginLeft: SIZES.sm },
-    cardContent: { flex: 1, paddingVertical: SIZES.md, paddingLeft: SIZES.sm, paddingRight: 4, gap: 4 },
-    cardTitle:   { fontSize: SIZES.fontMd, fontWeight: '700', color: C.textPrimary },
-    cardPreview: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 17 },
-    cardFooter:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    subjectPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
-    subjectDot:  { width: 4, height: 4, borderRadius: 2 },
-    cardSubject: { fontSize: SIZES.fontXs, fontWeight: '700' },
-    cardDot:     { fontSize: SIZES.fontXs, color: C.textMuted },
-    cardDate:    { fontSize: SIZES.fontXs, color: C.textMuted },
-
-    empty:        { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, paddingTop: SIZES.xxxl },
-    emptyIconWrap:{ width: 64, height: 64, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.xs },
-    emptyTitle:   { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textSecondary },
-    emptySub:     { fontSize: SIZES.fontSm, color: C.textMuted, textAlign: 'center', paddingHorizontal: SIZES.xl },
-    emptyBtn:     { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.xl, paddingVertical: SIZES.sm + 2, borderRadius: SIZES.borderRadiusFull, marginTop: SIZES.sm },
-    emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: SIZES.fontSm },
+    card: { gap: SIZES.md },
+    cardHeader: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+    iconBox: { width: 44, height: 44, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center' },
+    cardTitleWrap: { flex: 1, minWidth: 0, gap: 6 },
+    cardTitle: { fontSize: SIZES.fontMd, fontWeight: '800', color: C.textPrimary, lineHeight: 21 },
+    cardPreview: { fontSize: SIZES.fontSm, color: C.textSecondary, lineHeight: 20 },
+    conceptsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs },
+    conceptChip: { maxWidth: '48%', borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.sm, paddingVertical: 4 },
+    conceptText: { fontSize: 10, fontWeight: '700', color: C.textSecondary },
+    cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.sm, borderTopWidth: 1, borderTopColor: C.border, paddingTop: SIZES.sm },
+    metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
+    metaText: { fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '700' },
 });
