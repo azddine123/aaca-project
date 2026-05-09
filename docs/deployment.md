@@ -15,7 +15,7 @@
 
 ### Required Accounts
 
-- **Firebase**: For database and storage
+- **MongoDB**: For database and GridFS image storage
 - **Cloud Provider**: AWS/GCP/Azure or any VPS provider
 - **Domain Name**: For production deployment
 - **SSL Certificate**: Let's Encrypt (free) or purchased
@@ -69,10 +69,9 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - FIREBASE_CREDENTIALS_PATH=/app/firebase-credentials.json
       - MONGODB_URL=${MONGODB_URL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
-      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
       - ./uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
@@ -233,79 +232,47 @@ netlify deploy --prod --dir=web-build
 
 ## Database Setup
 
-### Firebase Setup
+### MongoDB Setup
 
-#### 1. Create Firebase Project
-
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Click "Add Project"
-3. Enable Firestore and Storage
-
-#### 2. Service Account
+#### 1. Local / Self-hosted
 
 ```bash
-# Generate service account key
-# Firebase Console → Project Settings → Service Accounts → Generate Key
+# Install MongoDB Community Edition
+sudo apt-get install -y mongodb-org
 
-# Download and save as firebase-credentials.json
-# Never commit this file to git!
+# Start the service
+sudo systemctl start mongod
+sudo systemctl enable mongod
 ```
 
-#### 3. Firestore Rules
+#### 2. MongoDB Atlas (Cloud, Recommended for Production)
 
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can only access their own data
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Notes - user can access their own
-    match /notes/{noteId} {
-      allow read, write: if request.auth != null && 
-        resource.data.user_id == request.auth.uid;
-    }
-    
-    // Quizzes
-    match /quizzes/{quizId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        get(/databases/$(database)/documents/notes/$(resource.data.note_id)).data.user_id == request.auth.uid;
-    }
-    
-    // Flashcards
-    match /flashcards/{cardId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Quiz results
-    match /quiz_results/{resultId} {
-      allow read, write: if request.auth != null && 
-        resource.data.user_id == request.auth.uid;
-    }
-    
-    // User progress
-    match /user_progress/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
+1. Go to [MongoDB Atlas](https://cloud.mongodb.com)
+2. Create a free cluster (M0 tier)
+3. Create a database user with read/write permissions
+4. Whitelist your server IP (or `0.0.0.0/0` for dev)
+5. Copy the connection string
+
+#### 3. Configure the Backend
+
+```bash
+# .env
+MONGODB_URL=mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/aaca?retryWrites=true&w=majority
 ```
 
-#### 4. Storage Rules
+The backend auto-creates all collections and GridFS buckets on first use — no manual schema setup required.
 
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /users/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
-```
+#### 4. MongoDB Indexes (Applied Automatically)
+
+The service layer creates the following indexes on startup:
+
+| Collection | Index |
+|------------|-------|
+| `users` | `email` (unique) |
+| `notes` | `user_id`, `session_id` |
+| `flashcards` | `note_id`, `next_review` |
+| `quiz_results` | `quiz_id`, `user_id` |
+| `course_sessions` | `user_id`, `status` |
 
 ---
 
@@ -419,16 +386,15 @@ jobs:
 
 ### Common Issues
 
-#### 1. Firebase Connection Failed
+#### 1. MongoDB Connection Failed
 
 ```bash
-# Check credentials
+# Check connection from within the container
 python -c "
-import firebase_admin
-from firebase_admin import credentials
-cred = credentials.Certificate('firebase-credentials.json')
-firebase_admin.initialize_app(cred)
-print('Firebase connected!')
+from pymongo import MongoClient
+client = MongoClient('mongodb://localhost:27017')
+print(client.server_info())
+print('MongoDB connected!')
 "
 ```
 
@@ -473,8 +439,7 @@ services:
 - [ ] Set up rate limiting
 - [ ] Configure CORS properly
 - [ ] Use environment variables for secrets
-- [ ] Enable Firebase App Check
-- [ ] Set up proper Firestore rules
+- [ ] Set up MongoDB access controls and IP whitelist
 - [ ] Regular security audits
 - [ ] Keep dependencies updated
 
@@ -512,11 +477,11 @@ const HeavyScreen = React.lazy(() => import('./HeavyScreen'));
 
 ## Backup Strategy
 
-### Firebase Backup
+### MongoDB Backup
 
 ```bash
-# Automated backup using gcloud
-0 0 * * * gcloud firestore export gs://your-bucket/backup-$(date +\%Y-\%m-\%d)
+# Dump all collections (cron daily at midnight)
+0 0 * * * mongodump --uri="${MONGODB_URL}" --out=/backups/$(date +\%Y-\%m-\%d)
 ```
 
 ### Application Data

@@ -361,6 +361,17 @@ Toutes les routes sont préfixées par `/api/v1`. Les routes protégées nécess
 | `POST` | `/flashcards/{card_id}/review` | Oui | Enregistrer une révision (SM-2, note 1-5) |
 | `GET` | `/flashcards/due` | Oui | Flashcards à réviser aujourd'hui |
 
+### Séances multi-images (`/sessions`)
+
+| Méthode | Route | Auth | Description |
+|:--------|:------|:----:|:-----------|
+| `POST` | `/sessions` | Oui | Créer une nouvelle séance de capture |
+| `GET` | `/sessions` | Oui | Lister ses séances |
+| `GET` | `/sessions/{id}` | Oui | Détail d'une séance |
+| `POST` | `/sessions/{id}/captures/ocr` | Oui | Ajouter une photo (OCR immédiat) |
+| `PATCH` | `/sessions/{id}/captures/{cid}` | Oui | Modifier l'ordre / métadonnées |
+| `POST` | `/sessions/{id}/finalize` | Oui | Fusionner les captures → note finale |
+
 ### Recherche & Utilisateur
 
 | Méthode | Route | Auth | Description |

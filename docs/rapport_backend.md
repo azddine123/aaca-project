@@ -60,8 +60,8 @@ Imaginez un restaurant :
 │                     │  schemas.py  │              │              │
 │                     └──────────────┘              ▼              │
 │                            │            ┌──────────────────┐    │
-│                            ▼            │   Firebase DB    │    │
-│                     ┌──────────────┐    │   + Storage      │    │
+│                            ▼            │   MongoDB        │    │
+│                     ┌──────────────┐    │   + GridFS       │    │
 │                     │ core/        │    └──────────────────┘    │
 │                     │ • config.py  │                             │
 │                     │ • security.py│                             │
@@ -83,7 +83,7 @@ backend/
 │   │   ├── __init__.py
 │   │   ├── config.py        ← Configuration
 │   │   ├── security.py      ← Authentification
-│   │   ├── firebase.py      ← Connexion Firebase
+│   │   ├── exceptions.py    ← ServiceUnavailableError
 │   │   └── logging.py       ← Logs
 │   ├── models/
 │   │   ├── __init__.py
@@ -137,7 +137,7 @@ backend/
 | `fastapi` | Serveur Web | Crée l'API et gère les requêtes |
 | `uvicorn` | Serveur HTTP | Fait tourner l'application |
 | `pydantic` | Validation | Vérifie que les données sont correctes |
-| `firebase-admin` | Base de données | Stocke les données utilisateurs |
+| `pymongo` / `motor` | Base de données | Stocke les données dans MongoDB |
 | `opencv-python` | Traitement d'image | Améliore les photos |
 | `easyocr` | OCR | Extrait le texte des images |
 | `openai` | IA | Utilise GPT pour générer du contenu |
@@ -422,45 +422,44 @@ is_valid = verify_password("mon_mot_de_passe", password_hash)
 
 ---
 
-## 💾 La Base de Données (Firebase)
+## 💾 La Base de Données (MongoDB)
 
-### Pourquoi Firebase ?
+### Pourquoi MongoDB ?
 
 | Service | Utilisation |
 |---------|-------------|
-| **Firestore** | Base de données NoSQL flexible |
-| **Authentication** | Gestion des utilisateurs |
-| **Storage** | Stockage des images |
-| **Gratuit** | Niveau gratuit généreux |
+| **Collections** | Base de données NoSQL flexible, schéma dynamique |
+| **GridFS** | Stockage des images (fichiers > 16 MB) |
+| **Motor** | Driver async Python pour FastAPI |
+| **Atlas** | Hébergement cloud gratuit en tier M0 |
 
-### Structure Firestore
+### Structure des Collections
 
 ```
-Firestore Database
-├── users/                    ← Collection
-│   ├── user_001/            ← Document
-│   │   ├── email: "john@..."
-│   │   ├── full_name: "John Doe"
-│   │   └── cognitive_level: "intermediate"
-│   └── user_002/
+MongoDB Database: aaca
+├── users                     ← Collection
+│   ├── { _id, email, full_name, cognitive_level, ... }
 │
-├── notes/
-│   ├── note_001/
-│   │   ├── user_id: "user_001"
-│   │   ├── title: "Mathématiques"
-│   │   ├── raw_text: "Le théorème de Pythagore..."
-│   │   └── subject: "mathematics"
-│   └── note_002/
+├── notes
+│   ├── { _id, user_id, title, raw_text, subject,
+│   │     quizzes: [...ids], flashcards: [...ids],
+│   │     session_id, original_image_url, ... }
 │
-├── quizzes/
-│   ├── quiz_001/
-│   │   ├── note_id: "note_001"
-│   │   ├── questions: [...]
-│   │   └── difficulty: "intermediate"
-│   └── quiz_002/
+├── quizzes
+│   ├── { _id, note_id, questions: [...], difficulty }
 │
-├── flashcards/
-└── quiz_results/
+├── flashcards
+│   ├── { _id, note_id, front, back, next_review,
+│   │     easiness_factor, interval, repetitions }
+│
+├── quiz_results
+│   ├── { _id, quiz_id, user_id, score, answers: [...] }
+│
+├── course_sessions
+│   ├── { _id, user_id, title, status, captures: [...],
+│   │     final_note_id, created_at }
+│
+└── fs.files / fs.chunks      ← GridFS pour les images
 ```
 
 ---
@@ -494,7 +493,7 @@ Firestore Database
 Étape 8: LLM Service ──────▶ Génère quiz et flashcards
          │
          ▼
-Étape 9: Database ─────────▶ Sauvegarde tout dans Firebase
+Étape 9: Database ─────────▶ Sauvegarde tout dans MongoDB
          │
          ▼
 Étape 10: Backend ─────────▶ Retourne le résultat au frontend
@@ -580,7 +579,7 @@ Le backend AACA est une application **Python/FastAPI** qui :
 3. ✅ Extrait le texte avec OCR
 4. ✅ Analyse le contenu avec l'IA
 5. ✅ Génère du matériel pédagogique
-6. ✅ Stocke tout dans Firebase
+6. ✅ Stocke tout dans MongoDB
 
 ### Schéma récapitulatif
 
@@ -612,10 +611,10 @@ Le backend AACA est une application **Python/FastAPI** qui :
 │                                  │                             │
 │                                  ▼                             │
 │                       ┌──────────────────────┐                 │
-│                       │   Firebase Storage   │                 │
-│                       │   • Images           │                 │
-│                       │   • Notes            │                 │
-│                       │   • Quiz             │                 │
+│                       │   MongoDB + GridFS   │                 │
+│                       │   • Notes, Quiz      │                 │
+│                       │   • Flashcards       │                 │
+│                       │   • Images (GridFS)  │                 │
 │                       └──────────────────────┘                 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -645,8 +644,8 @@ google-generativeai==0.3.2
 anthropic==0.18.0
 
 # Database
-firebase-admin==6.3.0
 pymongo==4.6.1
+motor==3.3.2
 
 # Authentication
 python-jose[cryptography]==3.3.0

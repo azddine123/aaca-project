@@ -554,6 +554,30 @@ class MongoDBService:
         result = await collection.delete_many({"note_id": note_id})
         return result.deleted_count
 
+    async def delete_quiz_results_by_quiz_ids(self, quiz_ids: list[str]) -> int:
+        """Delete quiz_results for the given quiz IDs. Returns deleted count."""
+        if not quiz_ids:
+            return 0
+        collection = self._get_collection("quiz_results")
+        if collection is None:
+            return 0
+        result = await collection.delete_many({"quiz_id": {"$in": quiz_ids}})
+        return result.deleted_count
+
+    async def delete_image_from_gridfs(self, file_id: str) -> bool:
+        """Delete an image from GridFS by its file_id. Returns True if deleted."""
+        if self.gridfs is None:
+            return False
+        try:
+            oid = ObjectId(file_id)
+        except InvalidId:
+            return False
+        try:
+            await self.gridfs.delete(oid)
+            return True
+        except Exception:
+            return False
+
     # ============== Course Session Operations ==============
 
     async def create_session(self, session_data: dict[str, Any]) -> str:
