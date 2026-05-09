@@ -353,6 +353,7 @@ For each question:
 - QCM: provide 4 options with one correct answer
 - Open-ended: provide expected key points in answer
 - Include brief explanation for each answer
+- For any mathematical expression use $...$ for inline math and $$...$$ for display math (never use \\( \\) or \\[ \\])
 
 Return valid JSON:
 {{
@@ -405,6 +406,7 @@ Each flashcard should have:
 - Front: A question, concept, or term
 - Back: The answer, explanation, or definition
 - Difficulty level based on complexity
+- For any mathematical expression use $...$ for inline math and $$...$$ for display math (never use \\( \\) or \\[ \\])
 
 Return valid JSON:
 {{

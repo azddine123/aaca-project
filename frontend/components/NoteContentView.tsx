@@ -17,11 +17,15 @@ type Seg = { t: 'text' | 'math' | 'display'; v: string };
 
 function parse(text: string): Seg[] {
     const out: Seg[] = [];
-    const re = /\$\$([^$]+)\$\$|\$([^$\n]+)\$/g;
+    // Supports $$...$$ / $...$ and \[...\] / \(...\) delimiters
+    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)/g;
     let last = 0, m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
         if (m.index > last) out.push({ t: 'text', v: text.slice(last, m.index) });
-        out.push(m[1] !== undefined ? { t: 'display', v: m[1] } : { t: 'math', v: m[2] });
+        if (m[1] !== undefined)      out.push({ t: 'display', v: m[1] });
+        else if (m[2] !== undefined) out.push({ t: 'math',    v: m[2] });
+        else if (m[3] !== undefined) out.push({ t: 'display', v: m[3] });
+        else                         out.push({ t: 'math',    v: m[4] });
         last = m.index + m[0].length;
     }
     if (last < text.length) out.push({ t: 'text', v: text.slice(last) });
