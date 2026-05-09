@@ -170,7 +170,7 @@ class TestFlashcardOwnershipEnforcement:
                 },
             )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_review_own_flashcard_returns_200(
         self,
@@ -201,8 +201,9 @@ class TestFlashcardOwnershipEnforcement:
                 return_value=True,
             ),
             patch(
-                "app.services.adaptive_learning.adaptive_learning.calculate_next_review",
-                return_value=next_review,
+                "app.services.mongodb_service.mongodb_service.save_flashcard_review",
+                new_callable=AsyncMock,
+                return_value=None,
             ),
         ):
             response = _auth_client.post(

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     View, Text, TouchableOpacity, ScrollView,
     Animated,
@@ -258,20 +258,38 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
 // ─────────────────────────────────────────────────────────────────────────────
 function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
     const C = useAppColors();
+    const { authFetch } = useAuth();
     const questions = quiz.questions || [];
     const [qIndex, setQIndex] = useState(0);
     const [selected, setSelected] = useState<string | null>(null);
     const [confirmed, setConfirmed] = useState(false);
-    const [answers, setAnswers] = useState<{ correct: boolean }[]>([]);
+    const [answers, setAnswers] = useState<{ question_id: string; answer: string; correct: boolean }[]>([]);
     const [done, setDone] = useState(false);
+    const startedAt = useRef(new Date());
 
     const question = questions[qIndex];
+
+    // Fire-and-forget quiz result submission on completion
+    useEffect(() => {
+        if (!done || !quiz?.id || answers.length === 0) return;
+        const payload = {
+            quiz_id: quiz.id,
+            answers: answers.map(a => ({ question_id: a.question_id, answer: a.answer, time_spent: 0 })),
+            started_at: startedAt.current.toISOString(),
+            completed_at: new Date().toISOString(),
+        };
+        authFetch(`${API_URL}/quizzes/${quiz.id}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).catch(() => { /* silent — offline resilience */ });
+    }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const confirm = () => {
         if (!selected) return;
         const isCorrect = selected.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
         setConfirmed(true);
-        setAnswers(prev => [...prev, { correct: isCorrect }]);
+        setAnswers(prev => [...prev, { question_id: question.id, answer: selected, correct: isCorrect }]);
     };
 
     const next = () => {
@@ -418,7 +436,7 @@ function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // IDLE STATE
 // ─────────────────────────────────────────────────────────────────────────────
-function IdleState() {
+function IdleState({ dueCards, onStartDue }: { dueCards: any[]; onStartDue: () => void }) {
     const C = useAppColors();
     const G = useAppGradients();
     return (
@@ -427,6 +445,32 @@ function IdleState() {
             <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, marginBottom: SIZES.xl }}>
                 Sélectionnez une note pour générer des exercices.
             </Text>
+
+            {/* Due cards banner */}
+            {dueCards.length > 0 && (
+                <TouchableOpacity
+                    style={{ borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', borderWidth: 1, borderColor: C.accent + '60', ...SHADOWS.sm }}
+                    onPress={onStartDue}
+                    activeOpacity={0.85}
+                >
+                    <LinearGradient colors={G.accent as [string, string]} style={{ flexDirection: 'row', alignItems: 'center', padding: SIZES.lg, gap: SIZES.md }}>
+                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' }}>
+                            <MaterialCommunityIcons name="cards-outline" size={28} color="#fff" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: SIZES.fontLg, fontWeight: '700', color: '#fff' }}>
+                                {dueCards.length} carte{dueCards.length > 1 ? 's' : ''} à réviser
+                            </Text>
+                            <Text style={{ fontSize: SIZES.fontSm, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>
+                                Démarrer la révision du jour
+                            </Text>
+                        </View>
+                        <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius }}>
+                            <Text style={{ fontSize: SIZES.fontSm, fontWeight: '700', color: '#fff' }}>Démarrer</Text>
+                        </View>
+                    </LinearGradient>
+                </TouchableOpacity>
+            )}
             {[
                 { icon: 'cards-outline',           label: 'Flashcards',     desc: 'Répétition espacée SM-2 pour mémoriser durablement vos définitions et concepts clés.', color: C.primary },
                 { icon: 'clipboard-check-outline', label: 'Quiz adaptatif', desc: 'Questions QCM générées par IA depuis votre cours. Analysez vos points faibles.',        color: C.success },
@@ -459,13 +503,36 @@ function IdleState() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function StudyScreen() {
     const { currentQuiz, currentFlashcards, setCurrentFlashcards, setCurrentQuiz } = useStudy();
+    const { authFetch } = useAuth();
     const C = useAppColors();
+    const [dueCards, setDueCards] = useState<any[]>([]);
+
+    const fetchDueCards = useCallback(async () => {
+        try {
+            const res = await authFetch(`${API_URL}/flashcards/due?limit=50`);
+            if (res.ok) setDueCards(await res.json());
+        } catch { /* silent */ }
+    }, [authFetch]);
+
+    useEffect(() => { fetchDueCards(); }, [fetchDueCards]);
 
     if (currentFlashcards && currentFlashcards.length > 0)
-        return <View style={{ flex: 1, backgroundColor: C.background }}><FlashcardSession cards={currentFlashcards} onExit={() => setCurrentFlashcards([])} /></View>;
+        return (
+            <View style={{ flex: 1, backgroundColor: C.background }}>
+                <FlashcardSession cards={currentFlashcards} onExit={() => { setCurrentFlashcards([]); fetchDueCards(); }} />
+            </View>
+        );
 
     if (currentQuiz && (currentQuiz.questions?.length ?? 0) > 0)
-        return <View style={{ flex: 1, backgroundColor: C.background }}><QuizSession quiz={currentQuiz} onExit={() => setCurrentQuiz(null)} /></View>;
+        return (
+            <View style={{ flex: 1, backgroundColor: C.background }}>
+                <QuizSession quiz={currentQuiz} onExit={() => setCurrentQuiz(null)} />
+            </View>
+        );
 
-    return <View style={{ flex: 1, backgroundColor: C.background }}><IdleState /></View>;
+    return (
+        <View style={{ flex: 1, backgroundColor: C.background }}>
+            <IdleState dueCards={dueCards} onStartDue={() => setCurrentFlashcards(dueCards)} />
+        </View>
+    );
 }

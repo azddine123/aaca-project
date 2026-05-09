@@ -216,6 +216,10 @@ class Flashcard(BaseModel):
     next_review: datetime | None = None
     review_count: int = 0
     mastery_level: float = 0.0
+    # SM-2 algorithm fields
+    easiness_factor: float = 2.5
+    repetitions: int = 0
+    interval: int = 1
 
 
 class FlashcardReview(BaseModel):
@@ -247,7 +251,7 @@ class Note(NoteBase):
     """Complete note model."""
     id: str
     user_id: str
-    original_image_url: str
+    original_image_url: str | None = None  # None for notes created from text (no image)
     processed_content: StructuredContent
     raw_text: str
     summary: str | None = None
@@ -257,7 +261,7 @@ class Note(NoteBase):
     created_at: datetime
     updated_at: datetime
     cognitive_level: CognitiveLevel
-    processing_metadata: dict[str, Any]
+    processing_metadata: dict[str, Any] = {}
 
 
 class NoteListItem(BaseModel):

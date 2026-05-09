@@ -677,7 +677,7 @@ async def review_flashcard(
     review: FlashcardReview,
     current_user: str = Depends(get_current_user),
 ) -> dict:
-    """Review a flashcard using spaced repetition."""
+    """Review a flashcard using spaced repetition (SM-2)."""
     card = await mongodb_service.get_flashcard(card_id)
 
     if not card:
@@ -686,34 +686,57 @@ async def review_flashcard(
             detail="Flashcard not found",
         )
 
-    # Verify ownership: the flashcard's parent note must belong to the current user.
+    # Verify ownership via parent note
     await _get_owned_note(card["note_id"], current_user)
 
-    next_review = adaptive_learning.calculate_next_review(card, review.difficulty_rating)
+    sm2 = adaptive_learning.compute_sm2(card, review.difficulty_rating)
+    new_review_count = card.get("review_count", 0) + 1
+    new_mastery = round(min(1.0, card.get("mastery_level", 0.0) + (review.difficulty_rating / 25)), 4)
 
     update_data = {
         "last_reviewed": review.reviewed_at,
-        "next_review": next_review,
-        "review_count": card.get("review_count", 0) + 1,
-        "mastery_level": min(1.0, card.get("mastery_level", 0) + (review.difficulty_rating / 25)),
+        "next_review": sm2["next_review"],
+        "review_count": new_review_count,
+        "mastery_level": new_mastery,
+        "easiness_factor": sm2["easiness_factor"],
+        "repetitions": sm2["repetitions"],
+        "interval": sm2["interval"],
     }
-
     await mongodb_service.update_flashcard(card_id, update_data)
 
+    # Persist review history for analytics
+    await mongodb_service.save_flashcard_review({
+        "user_id": current_user,
+        "flashcard_id": card_id,
+        "note_id": card["note_id"],
+        "difficulty_rating": review.difficulty_rating,
+        "reviewed_at": review.reviewed_at,
+        "next_review": sm2["next_review"],
+        "mastery_level_after": new_mastery,
+        "interval_days": sm2["interval"],
+    })
+
+    days_until = max(0, (sm2["next_review"] - review.reviewed_at).days)
     return {
-        "next_review": next_review,
-        "days_until_review": (next_review - review.reviewed_at).days,
+        "next_review": sm2["next_review"],
+        "days_until_review": days_until,
+        "mastery_level": new_mastery,
+        "review_count": new_review_count,
+        "easiness_factor": sm2["easiness_factor"],
+        "interval": sm2["interval"],
     }
 
 
 @router.get("/flashcards/due")
 async def get_due_flashcards(
+    limit: int = Query(20, ge=1, le=100),
     current_user: str = Depends(get_current_user),
 ) -> list[Flashcard]:
-    """Get flashcards due for review."""
+    """Get flashcards due for review, sorted by next_review ascending."""
     due_cards = await mongodb_service.get_flashcards(
         due_only=True,
         user_id=current_user,
+        limit=limit,
     )
 
     return [Flashcard(**f) for f in due_cards]
@@ -857,6 +880,12 @@ async def get_stats(current_user: str = Depends(get_current_user)) -> dict:
         mongodb_service.count_flashcards(user_id=current_user),
         mongodb_service.count_flashcards(user_id=current_user, due_only=True),
     )
+    subject_dist = progress.get("subject_distribution") or {}
+    if not subject_dist and notes:
+        for note in notes:
+            subj = note.get("subject") or "other"
+            subject_dist[subj] = subject_dist.get(subj, 0) + 1
+
     return {
         "total_notes": len(notes),
         "total_quizzes": len(quiz_results),
@@ -864,6 +893,6 @@ async def get_stats(current_user: str = Depends(get_current_user)) -> dict:
         "flashcards_due_count": due_fc,
         "average_score": round(statistics.mean([r["score"] for r in quiz_results]), 1) if quiz_results else 0,
         "study_streak": progress.get("study_streak", 0),
-        "subject_distribution": progress.get("subject_distribution", {}),
+        "subject_distribution": subject_dist,
         "recent_activity": progress.get("last_activity"),
     }
