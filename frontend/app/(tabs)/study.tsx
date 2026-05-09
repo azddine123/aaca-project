@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
     View, Text, TouchableOpacity, ScrollView,
     Animated,
@@ -8,6 +8,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useStudy } from '@/contexts/StudyContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 import MathFormula from '@/components/MathFormula';
 
@@ -99,12 +101,12 @@ function OptionText({ text, color, bg }: { text: string; color: string; bg: stri
 function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void }) {
     const C = useAppColors();
     const G = useAppGradients();
+    const { authFetch } = useAuth();
     const [index, setIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
     const [done, setDone] = useState(false);
     const [ratings, setRatings] = useState<number[]>([]);
 
-    // Fade + scale (compatible WebView — pas de rotateY)
     const anim = useRef(new Animated.Value(1)).current;
     const card = cards[index];
 
@@ -113,13 +115,22 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
             Animated.timing(anim, { toValue: 0, duration: 120, useNativeDriver: true }),
             Animated.timing(anim, { toValue: 1, duration: 120, useNativeDriver: true }),
         ]).start();
-        // Bascule au milieu de l'animation
         setTimeout(() => setIsFlipped(f => !f), 120);
     }, [anim]);
 
     const rate = (rating: number) => {
         const newRatings = [...ratings, rating];
         setRatings(newRatings);
+
+        // Persist review to backend (fire-and-forget)
+        if (card?.id) {
+            authFetch(`${API_URL}/flashcards/${card.id}/review`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ difficulty_rating: rating, reviewed_at: new Date().toISOString() }),
+            }).catch(() => { /* silent — offline resilience */ });
+        }
+
         Animated.sequence([
             Animated.timing(anim, { toValue: 0, duration: 100, useNativeDriver: true }),
             Animated.timing(anim, { toValue: 1, duration: 100, useNativeDriver: true }),
@@ -178,9 +189,19 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
             <TouchableOpacity onPress={flip} activeOpacity={0.9} style={{ flex: 1, marginHorizontal: SIZES.xl, marginBottom: SIZES.lg }}>
                 <Animated.View style={{ flex: 1, opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }], borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.md }}>
                     <LinearGradient colors={faceGradient} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: SIZES.xxl, gap: SIZES.lg }}>
-                        <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            {faceLabel}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>
+                                {faceLabel}
+                            </Text>
+                            {card.mastery_level != null && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 }}>
+                                    <MaterialCommunityIcons name="star" size={10} color={C.warning ?? '#F59E0B'} />
+                                    <Text style={{ fontSize: 10, fontWeight: '700', color: C.warning ?? '#F59E0B' }}>
+                                        {Math.round((card.mastery_level ?? 0) * 100)}%
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
 
                         <MathText
                             text={faceText}

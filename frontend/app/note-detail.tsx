@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
     View, Text, StyleSheet, ScrollView,
     TouchableOpacity, ActivityIndicator, Alert,
+    TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -16,7 +17,8 @@ import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-type Tab = 'resume' | 'contenu' | 'etudier';
+type Tab = 'resume' | 'contenu' | 'etudier' | 'assistant';
+interface QAMessage { role: 'user' | 'assistant'; text: string; }
 
 export default function NoteDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,7 +33,37 @@ export default function NoteDetailScreen() {
     const [loadingQuiz, setLoadingQuiz] = useState(false);
     const [loadingCards, setLoadingCards] = useState(false);
 
+    // Q&A assistant state
+    const [qaMessages, setQaMessages] = useState<QAMessage[]>([]);
+    const [qaInput, setQaInput] = useState('');
+    const [qaLoading, setQaLoading] = useState(false);
+    const qaScrollRef = useRef<ScrollView>(null);
+
     useEffect(() => { if (id) fetchNote(id); }, [id, fetchNote]);
+
+    const handleAskQuestion = async () => {
+        const q = qaInput.trim();
+        if (!q || qaLoading || !id) return;
+        setQaMessages(prev => [...prev, { role: 'user', text: q }]);
+        setQaInput('');
+        setQaLoading(true);
+        setTimeout(() => qaScrollRef.current?.scrollToEnd({ animated: true }), 100);
+        try {
+            const res = await authFetch(`${API_URL}/notes/${id}/ask`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: q }),
+            });
+            if (!res.ok) throw new Error('Erreur serveur');
+            const data = await res.json();
+            setQaMessages(prev => [...prev, { role: 'assistant', text: data.answer || 'Pas de réponse.' }]);
+        } catch {
+            setQaMessages(prev => [...prev, { role: 'assistant', text: "Impossible de répondre pour l'instant. Réessayez." }]);
+        } finally {
+            setQaLoading(false);
+            setTimeout(() => qaScrollRef.current?.scrollToEnd({ animated: true }), 100);
+        }
+    };
 
     const handleGenerateQuiz = async () => {
         if (!id || !auth.token) return;
@@ -96,9 +128,10 @@ export default function NoteDetailScreen() {
         : '';
 
     const TABS: { key: Tab; label: string; icon: string }[] = [
-        { key: 'resume',  label: 'Résumé',  icon: 'text-box-outline' },
-        { key: 'contenu', label: 'Contenu', icon: 'file-document-outline' },
-        { key: 'etudier', label: 'Étudier', icon: 'school-outline' },
+        { key: 'resume',    label: 'Résumé',    icon: 'text-box-outline' },
+        { key: 'contenu',   label: 'Contenu',   icon: 'file-document-outline' },
+        { key: 'etudier',   label: 'Étudier',   icon: 'school-outline' },
+        { key: 'assistant', label: 'Assistant', icon: 'robot-outline' },
     ];
 
     return (
@@ -141,7 +174,8 @@ export default function NoteDetailScreen() {
             </View>
 
             {/* ── Content ── */}
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView ref={activeTab === 'assistant' ? qaScrollRef : undefined} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* RÉSUMÉ */}
                 {activeTab === 'resume' && (
                     currentNote.summary ? (
@@ -209,8 +243,69 @@ export default function NoteDetailScreen() {
                     </View>
                 )}
 
+                {/* ASSISTANT */}
+                {activeTab === 'assistant' && (
+                    <View style={{ gap: SIZES.sm, flex: 1 }}>
+                        {qaMessages.length === 0 && (
+                            <View style={styles.emptyTab}>
+                                <MaterialCommunityIcons name="robot-outline" size={40} color={C.textMuted} />
+                                <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, textAlign: 'center' }}>
+                                    Posez une question sur ce cours.{'\n'}L'assistant répondra en se basant sur le contenu.
+                                </Text>
+                            </View>
+                        )}
+                        {qaMessages.map((msg, i) => (
+                            <View key={i} style={[
+                                styles.qaMsg,
+                                msg.role === 'user'
+                                    ? { backgroundColor: C.primary + '18', borderColor: C.primary + '30', alignSelf: 'flex-end' }
+                                    : { backgroundColor: C.surface, borderColor: C.border, alignSelf: 'flex-start' },
+                            ]}>
+                                {msg.role === 'assistant' && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                                        <MaterialCommunityIcons name="robot-outline" size={13} color={C.primary} />
+                                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.primary, textTransform: 'uppercase', letterSpacing: 0.8 }}>Assistant</Text>
+                                    </View>
+                                )}
+                                <Text style={{ fontSize: SIZES.fontSm, color: C.textPrimary, lineHeight: 20 }}>{msg.text}</Text>
+                            </View>
+                        ))}
+                        {qaLoading && (
+                            <View style={[styles.qaMsg, { backgroundColor: C.surface, borderColor: C.border, alignSelf: 'flex-start', flexDirection: 'row', gap: SIZES.sm }]}>
+                                <ActivityIndicator size="small" color={C.primary} />
+                                <Text style={{ color: C.textMuted, fontSize: SIZES.fontXs }}>L'assistant réfléchit…</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+
                 <View style={{ height: 48 }} />
             </ScrollView>
+
+            {/* Q&A Input bar */}
+            {activeTab === 'assistant' && (
+                <View style={[styles.qaBar, { backgroundColor: C.surface, borderTopColor: C.border }]}>
+                    <TextInput
+                        style={[styles.qaInput, { backgroundColor: C.surfaceHigh ?? C.background, borderColor: C.border, color: C.textPrimary }]}
+                        value={qaInput}
+                        onChangeText={setQaInput}
+                        placeholder="Posez une question…"
+                        placeholderTextColor={C.textMuted}
+                        returnKeyType="send"
+                        onSubmitEditing={handleAskQuestion}
+                        editable={!qaLoading}
+                    />
+                    <TouchableOpacity
+                        style={[styles.qaSend, { backgroundColor: qaInput.trim() && !qaLoading ? C.primary : C.border }]}
+                        onPress={handleAskQuestion}
+                        disabled={!qaInput.trim() || qaLoading}
+                        activeOpacity={0.8}
+                    >
+                        <MaterialCommunityIcons name="send" size={18} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+            )}
+            </KeyboardAvoidingView>
         </View>
     );
 }
@@ -249,4 +344,9 @@ const makeStyles = (C: any) => StyleSheet.create({
     infoNoteText: { flex: 1, fontSize: SIZES.fontXs, color: C.textMuted, lineHeight: 17 },
 
     emptyTab: { alignItems: 'center', gap: SIZES.sm, paddingTop: SIZES.xxxl },
+
+    qaMsg: { maxWidth: '88%', borderRadius: 14, borderWidth: 1, padding: SIZES.sm + 2 },
+    qaBar: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, borderTopWidth: 1 },
+    qaInput: { flex: 1, borderWidth: 1, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, fontSize: SIZES.fontSm },
+    qaSend: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
 });

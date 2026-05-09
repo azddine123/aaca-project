@@ -409,6 +409,33 @@ class MongoDBService:
 
         return _sanitize(result)
 
+    async def count_flashcards(
+        self,
+        user_id: str | None = None,
+        due_only: bool = False,
+    ) -> int:
+        """Count flashcards without fetching documents (efficient for stats)."""
+        collection = self._get_collection("flashcards")
+        if collection is None:
+            return 0
+        query: dict = {}
+        if user_id:
+            query["user_id"] = user_id
+        if due_only:
+            query["next_review"] = {"$lte": datetime.now()}
+        return await collection.count_documents(query)
+
+    async def save_flashcard_review(self, review_data: dict[str, Any]) -> str:
+        """Persist a flashcard review entry (for SM-2 history)."""
+        collection = self._get_collection("flashcard_reviews")
+        if collection is None:
+            raise ServiceUnavailableError("MongoDB")
+        review_data["_id"] = ObjectId()
+        review_data["id"] = str(review_data["_id"])
+        review_data["created_at"] = datetime.now()
+        await collection.insert_one(review_data)
+        return review_data["id"]
+
     async def get_flashcard(self, card_id: str) -> dict[str, Any] | None:
         """Get a single flashcard by ID."""
         collection = self._get_collection("flashcards")

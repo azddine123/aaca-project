@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet,
     TouchableOpacity, RefreshControl,
@@ -11,6 +11,15 @@ import { useNotes } from '@/contexts/NotesContext';
 import { ZelligePattern } from '@/components/ZelligePattern';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { API_URL } from '@/config/api';
+
+interface Stats {
+    total_notes: number;
+    total_flashcards: number;
+    flashcards_due_count: number;
+    average_score: number;
+    study_streak: number;
+}
 
 // ── Moroccan Design Tokens ───────────────────────────────────────────
 const T = {
@@ -100,8 +109,22 @@ const sh = StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────────
 export default function HomeScreen() {
-    const { auth } = useAuth();
+    const { auth, authFetch } = useAuth();
     const { notes, fetchNotes, isLoading } = useNotes();
+    const [stats, setStats] = useState<Stats | null>(null);
+
+    const fetchStats = useCallback(async () => {
+        try {
+            const res = await authFetch(`${API_URL}/stats`);
+            if (res.ok) setStats(await res.json());
+        } catch { /* silent */ }
+    }, [authFetch]);
+
+    useEffect(() => { fetchStats(); }, [fetchStats]);
+
+    const handleRefresh = useCallback(async () => {
+        await Promise.all([fetchNotes(), fetchStats()]);
+    }, [fetchNotes, fetchStats]);
 
     const firstName = (auth.userName || 'Étudiant').split(' ')[0];
     const initials  = (auth.userName || 'YE')
@@ -114,7 +137,7 @@ export default function HomeScreen() {
             contentContainerStyle={s.content}
             showsVerticalScrollIndicator={false}
             refreshControl={
-                <RefreshControl refreshing={isLoading} onRefresh={fetchNotes} tintColor={T.cobalt} colors={[T.cobalt]} />
+                <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={T.cobalt} colors={[T.cobalt]} />
             }
         >
             {/* ── Header ── */}
@@ -154,10 +177,10 @@ export default function HomeScreen() {
                                 <Text style={s.streakLabel}>Série d'étude</Text>
                             </View>
                             <View style={s.streakNumRow}>
-                                <Text style={s.streakNum}>12</Text>
+                                <Text style={s.streakNum}>{stats?.study_streak ?? 0}</Text>
                                 <Text style={s.streakUnit}>jours</Text>
                             </View>
-                            <Text style={s.streakSub}>+3 vs. semaine dernière</Text>
+                            <Text style={s.streakSub}>{stats?.total_notes ?? 0} note{(stats?.total_notes ?? 0) > 1 ? 's' : ''} au total</Text>
                         </View>
 
                         {/* Right — week dots */}
@@ -187,9 +210,9 @@ export default function HomeScreen() {
             {/* ── Stats Row ── */}
             <View style={s.statsRow}>
                 {[
-                    { v: String(notes.length), l: 'Notes',     c: T.cobalt },
-                    { v: '—',                  l: 'Cartes',    c: T.terracotta },
-                    { v: '—',                  l: 'Précision', c: T.green },
+                    { v: String(stats?.total_notes ?? notes.length),     l: 'Notes',     c: T.cobalt },
+                    { v: String(stats?.total_flashcards ?? '—'),          l: 'Cartes',    c: T.terracotta },
+                    { v: stats ? `${stats.average_score}%` : '—',        l: 'Précision', c: T.green },
                 ].map((stat, i) => (
                     <View key={i} style={s.statCard}>
                         <Text style={[s.statValue, { color: stat.c }]}>{stat.v}</Text>
@@ -221,14 +244,18 @@ export default function HomeScreen() {
                                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                             />
                             <MaterialCommunityIcons name="cards-outline" size={24} color={T.saffron} />
-                            <View style={s.flashBadge}>
-                                <Text style={s.flashBadgeText}>24</Text>
-                            </View>
+                            {(stats?.flashcards_due_count ?? 0) > 0 && (
+                                <View style={s.flashBadge}>
+                                    <Text style={s.flashBadgeText}>{stats!.flashcards_due_count}</Text>
+                                </View>
+                            )}
                         </View>
                         {/* Text */}
                         <View style={{ flex: 1 }}>
-                            <Text style={s.flashTitle}>24 cartes à réviser</Text>
-                            <Text style={s.flashSub}>≈ 8 min · répétition espacée</Text>
+                            <Text style={s.flashTitle}>
+                                {stats ? `${stats.flashcards_due_count} carte${stats.flashcards_due_count !== 1 ? 's' : ''} à réviser` : 'Flashcards à réviser'}
+                            </Text>
+                            <Text style={s.flashSub}>≈ {Math.max(1, Math.round((stats?.flashcards_due_count ?? 0) / 3))} min · répétition espacée</Text>
                         </View>
                         {/* Button */}
                         <TouchableOpacity
@@ -239,17 +266,19 @@ export default function HomeScreen() {
                             <Text style={s.flashBtnText}>Démarrer</Text>
                         </TouchableOpacity>
                     </View>
-                    {/* Progress bar */}
-                    <View style={s.flashProgressRow}>
-                        <View style={s.flashProgressBg}>
-                            <LinearGradient
-                                colors={[T.cobalt, T.saffron]}
-                                style={[s.flashProgressFill, { width: '35%' }]}
-                                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                            />
+                    {/* Progress bar — mastered vs total */}
+                    {stats && stats.total_flashcards > 0 && (
+                        <View style={s.flashProgressRow}>
+                            <View style={s.flashProgressBg}>
+                                <LinearGradient
+                                    colors={[T.cobalt, T.saffron]}
+                                    style={[s.flashProgressFill, { width: `${Math.round(((stats.total_flashcards - stats.flashcards_due_count) / stats.total_flashcards) * 100)}%` }]}
+                                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                                />
+                            </View>
+                            <Text style={s.flashProgressText}>{stats.total_flashcards - stats.flashcards_due_count}/{stats.total_flashcards}</Text>
                         </View>
-                        <Text style={s.flashProgressText}>8/24</Text>
-                    </View>
+                    )}
                 </View>
             </View>
 
