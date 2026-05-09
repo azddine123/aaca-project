@@ -65,24 +65,30 @@ function ThemeModal({ visible, onClose }: { visible: boolean; onClose: () => voi
 
 // ─── Edit Profile Modal ───────────────────────────────────────────────────────
 function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-    const { auth, authFetch } = useAuth();
+    const { auth, authFetch, updateUserName } = useAuth();
     const C = useAppColors();
     const [name, setName] = useState(auth.userName || '');
     const [loading, setLoading] = useState(false);
 
     const save = async () => {
-        if (!name.trim()) return;
+        const trimmed = name.trim();
+        if (!trimmed) return;
         setLoading(true);
         try {
-            await authFetch(`${API_URL}/user/me`, {
+            const res = await authFetch(`${API_URL}/user/me`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name.trim() }),
+                body: JSON.stringify({ full_name: trimmed }),
             });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error((err as any).detail || 'Échec de la mise à jour');
+            }
+            await updateUserName(trimmed);
             Alert.alert('Succès', 'Profil mis à jour.');
             onClose();
-        } catch {
-            Alert.alert('Erreur', 'Impossible de mettre à jour le profil.');
+        } catch (e: any) {
+            Alert.alert('Erreur', e.message || 'Impossible de mettre à jour le profil.');
         } finally {
             setLoading(false);
         }

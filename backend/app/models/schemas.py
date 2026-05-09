@@ -231,7 +231,7 @@ class Flashcard(BaseModel):
 
 class FlashcardReview(BaseModel):
     """Flashcard review data."""
-    flashcard_id: str
+    flashcard_id: str | None = None   # optional: route uses card_id from URL path
     difficulty_rating: int = Field(..., ge=1, le=5)
     reviewed_at: datetime
 

@@ -48,6 +48,7 @@ interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
     authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
+    updateUserName: (name: string) => Promise<void>;
 }
 
 // Context
@@ -64,6 +65,7 @@ const AuthContext = createContext<AuthContextType>({
     login: async () => {},
     logout: async () => {},
     authFetch: async (input, init) => fetch(input, init),
+    updateUserName: async () => {},
 });
 
 // Hook
@@ -213,8 +215,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return res;
     }, [auth.token, logout]);
 
+    const updateUserName = async (name: string) => {
+        setAuth(prev => ({ ...prev, userName: name }));
+        await storage.setItem('aaca_username', name);
+    };
+
     return (
-        <AuthContext.Provider value={{ auth, login, logout, authFetch }}>
+        <AuthContext.Provider value={{ auth, login, logout, authFetch, updateUserName }}>
             {children}
         </AuthContext.Provider>
     );
