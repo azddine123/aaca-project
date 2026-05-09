@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet,
-    TouchableOpacity, RefreshControl,
+    TouchableOpacity, RefreshControl, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
+import { useStudy } from '@/contexts/StudyContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { ZelligePattern } from '@/components/ZelligePattern';
 import { formatDistanceToNow } from 'date-fns';
@@ -51,6 +52,7 @@ function formatDate(d: string | undefined): string {
 export default function HomeScreen() {
     const { auth, authFetch } = useAuth();
     const { notes, fetchNotes, isLoading } = useNotes();
+    const { setCurrentFlashcards } = useStudy();
     const C = useAppColors();
     const G = useAppGradients();
     const styles = useMemo(() => makeStyles(C), [C]);
@@ -69,6 +71,20 @@ export default function HomeScreen() {
     const handleRefresh = useCallback(async () => {
         await Promise.all([fetchNotes(), fetchStats()]);
     }, [fetchNotes, fetchStats]);
+
+    const startDueFlashcards = useCallback(async () => {
+        try {
+            const res = await authFetch(`${API_URL}/flashcards/due?limit=50`);
+            if (!res.ok) return;
+            const cards: any[] = await res.json();
+            if (cards.length === 0) {
+                Alert.alert('Révision terminée', 'Aucune carte à réviser aujourd\'hui.');
+                return;
+            }
+            setCurrentFlashcards(cards);
+            router.push('/(tabs)/study');
+        } catch { /* silent — offline */ }
+    }, [authFetch, setCurrentFlashcards]);
 
     const firstName = (auth.userName || 'Étudiant').split(' ')[0];
     const initials  = (auth.userName || 'YE')
@@ -230,7 +246,7 @@ export default function HomeScreen() {
                         {/* Button */}
                         <TouchableOpacity
                             style={[styles.flashBtn, { backgroundColor: C.primary }]}
-                            onPress={() => router.push('/(tabs)/study')}
+                            onPress={startDueFlashcards}
                             activeOpacity={0.85}
                         >
                             <Text style={styles.flashBtnText}>Démarrer</Text>
