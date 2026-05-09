@@ -4,13 +4,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs, router, Redirect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
-
-// Moroccan tab bar tokens
-const COBALT      = '#1B4FD8';
-const COBALT_DEEP = '#143FAE';
-const TEXT_FAINT  = '#8A8D91';
+import { useAppColors } from '@/contexts/AppearanceContext';
 
 function CaptureTabButton() {
+    const C = useAppColors();
     return (
         <TouchableOpacity
             style={styles.fab}
@@ -19,7 +16,7 @@ function CaptureTabButton() {
         >
             <View style={styles.fabInner}>
                 <LinearGradient
-                    colors={[COBALT, COBALT_DEEP]}
+                    colors={[C.primary, C.primaryDark]}
                     style={StyleSheet.absoluteFillObject}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 />
@@ -31,6 +28,7 @@ function CaptureTabButton() {
 
 export default function TabsLayout() {
     const { auth } = useAuth();
+    const C = useAppColors();
 
     if (!auth.isAuthenticated) {
         return <Redirect href="/(auth)/login" />;
@@ -40,9 +38,9 @@ export default function TabsLayout() {
         <Tabs
             screenOptions={{
                 headerShown: false,
-                tabBarActiveTintColor: COBALT,
-                tabBarInactiveTintColor: TEXT_FAINT,
-                tabBarStyle: styles.tabBar,
+                tabBarActiveTintColor: C.primary,
+                tabBarInactiveTintColor: C.textMuted,
+                tabBarStyle: [styles.tabBar, { backgroundColor: C.surface, borderTopColor: C.border }],
                 tabBarLabelStyle: styles.tabLabel,
                 tabBarItemStyle: styles.tabItem,
             }}
@@ -112,8 +110,6 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
     tabBar: {
-        backgroundColor: '#FFFFFF',
-        borderTopColor: '#E4E6EB',
         borderTopWidth: 1,
         height: 72,
         paddingBottom: 12,
@@ -147,7 +143,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderWidth: 3,
         borderColor: '#FFFFFF',
-        shadowColor: COBALT,
+        shadowColor: '#1B4FD8',
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.42,
         shadowRadius: 24,

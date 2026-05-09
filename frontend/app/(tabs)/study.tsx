@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 import MathFormula from '@/components/MathFormula';
+import { AacaCard, ProgressBar, StatusBadge } from '@/components/UIKit';
 
 // ── Parseur math inline ───────────────────────────────────────────────────────
 type Seg = { t: 'text' | 'math' | 'display'; v: string };
@@ -161,40 +162,44 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
         );
     }
 
-    // Gradient face recto / verso
     const faceGradient: [string, string] = isFlipped
-        ? ['#131A30', '#1A2540']
+        ? [C.surface, C.surfaceMid]
         : G.dark as [string, string];
     const faceLabel = isFlipped ? 'Réponse' : 'Question';
     const faceText  = isFlipped ? card.back : card.front;
-    const faceBg    = isFlipped ? '#131A30' : (G.dark?.[0] ?? '#0D1117');
+    const faceBg    = isFlipped ? C.surfaceMid : C.surface;
 
     return (
         <View style={{ flex: 1, backgroundColor: C.background }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md }}>
-                <TouchableOpacity onPress={onExit} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md, gap: SIZES.md }}>
+                <TouchableOpacity onPress={onExit} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
                     <MaterialCommunityIcons name="close" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
-                <Text style={{ fontSize: SIZES.fontSm, fontWeight: '600', color: C.textSecondary }}>{index + 1} / {cards.length}</Text>
-                <View style={{ width: 36 }} />
+                <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+                    <StatusBadge label="Révision active" tone="info" icon="cards-outline" />
+                    <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color: C.textSecondary }}>{index + 1} / {cards.length}</Text>
+                </View>
+                <View style={{ width: 38 }} />
             </View>
 
-            {/* Barre de progression */}
-            <View style={{ height: 3, backgroundColor: C.surfaceHigh, marginHorizontal: SIZES.xl, borderRadius: 2, marginBottom: SIZES.xl }}>
-                <View style={{ height: '100%', width: `${(index / cards.length) * 100}%`, backgroundColor: C.primary, borderRadius: 2 }} />
+            <View style={{ marginHorizontal: SIZES.xl, marginBottom: SIZES.xl, gap: 7 }}>
+                <ProgressBar value={(index + 1) / cards.length} color={C.primary} />
+                <Text style={{ alignSelf: 'flex-end', fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '700' }}>
+                    Progression {Math.round(((index + 1) / cards.length) * 100)}%
+                </Text>
             </View>
 
             {/* Carte (fade/scale au lieu de rotateY) */}
             <TouchableOpacity onPress={flip} activeOpacity={0.9} style={{ flex: 1, marginHorizontal: SIZES.xl, marginBottom: SIZES.lg }}>
-                <Animated.View style={{ flex: 1, opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }], borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.md }}>
+                <Animated.View style={{ flex: 1, opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }], borderRadius: SIZES.borderRadius, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.md }}>
                     <LinearGradient colors={faceGradient} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: SIZES.xxl, gap: SIZES.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color: isFlipped ? C.primary : C.textMuted, textTransform: 'uppercase', letterSpacing: 0 }}>
                                 {faceLabel}
                             </Text>
                             {card.mastery_level != null && (
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.warning + '16', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 }}>
                                     <MaterialCommunityIcons name="star" size={10} color={C.warning ?? '#F59E0B'} />
                                     <Text style={{ fontSize: 10, fontWeight: '700', color: C.warning ?? '#F59E0B' }}>
                                         {Math.round((card.mastery_level ?? 0) * 100)}%
@@ -232,15 +237,17 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
 
             {/* Boutons de difficulté */}
             {isFlipped ? (
-                <View style={{ flexDirection: 'row', paddingHorizontal: SIZES.lg, gap: SIZES.sm, marginBottom: SIZES.xxl }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: SIZES.lg, gap: SIZES.sm, marginBottom: SIZES.xxl }}>
                     {[
-                        { label: 'À revoir', color: C.error,   rating: 1 },
-                        { label: 'Difficile', color: C.warning, rating: 3 },
-                        { label: 'Bien',      color: C.success, rating: 4 },
-                        { label: 'Facile',    color: C.accent,  rating: 5 },
-                    ].map(({ label, color, rating }) => (
-                        <TouchableOpacity key={label} style={{ flex: 1, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius, borderWidth: 1.5, borderColor: color, alignItems: 'center' }} onPress={() => rate(rating)} activeOpacity={0.8}>
-                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color }}>{label}</Text>
+                        { label: 'À revoir', sub: 'Encore flou', icon: 'reload', color: C.error, rating: 1 },
+                        { label: 'Difficile', sub: 'Presque', icon: 'alert-circle-outline', color: C.warning, rating: 3 },
+                        { label: 'Bien', sub: 'Compris', icon: 'check-circle-outline', color: C.success, rating: 4 },
+                        { label: 'Facile', sub: 'Maîtrisé', icon: 'star-outline', color: C.accent, rating: 5 },
+                    ].map(({ label, sub, icon, color, rating }) => (
+                        <TouchableOpacity key={label} style={{ width: '48%', minHeight: 58, paddingVertical: SIZES.sm, paddingHorizontal: SIZES.sm, borderRadius: SIZES.borderRadius, borderWidth: 1.5, borderColor: color + '70', backgroundColor: color + '10', alignItems: 'center', justifyContent: 'center', gap: 3 }} onPress={() => rate(rating)} activeOpacity={0.8}>
+                            <MaterialCommunityIcons name={icon as any} size={17} color={color} />
+                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color }}>{label}</Text>
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: C.textMuted }}>{sub}</Text>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -343,7 +350,7 @@ function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
             <ScrollView contentContainerStyle={{ paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxxl }} showsVerticalScrollIndicator={false}>
                 {/* Concept */}
                 {question.related_concept && (
-                    <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.primary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: SIZES.sm }}>
+                    <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.primary, textTransform: 'uppercase', letterSpacing: 0, marginBottom: SIZES.sm }}>
                         {question.related_concept}
                     </Text>
                 )}
@@ -438,60 +445,63 @@ function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function IdleState({ dueCards, onStartDue }: { dueCards: any[]; onStartDue: () => void }) {
     const C = useAppColors();
-    const G = useAppGradients();
     return (
         <ScrollView style={{ flex: 1, backgroundColor: C.background }} contentContainerStyle={{ padding: SIZES.xl, gap: SIZES.lg, paddingBottom: SIZES.xxxl }} showsVerticalScrollIndicator={false}>
-            <Text style={{ fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, paddingTop: 56 }}>Zone d'étude</Text>
-            <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, marginBottom: SIZES.xl }}>
-                Sélectionnez une note pour générer des exercices.
-            </Text>
+            <View style={{ paddingTop: 56, gap: 5 }}>
+                <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color: C.primary, textTransform: 'uppercase', letterSpacing: 0 }}>Study</Text>
+                <Text style={{ fontSize: SIZES.fontXXl, fontWeight: '800', color: C.textPrimary, letterSpacing: 0 }}>Révisions</Text>
+                <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary }}>
+                    Cartes, quiz et entraînement depuis vos notes.
+                </Text>
+            </View>
 
-            {/* Due cards banner */}
             {dueCards.length > 0 && (
                 <TouchableOpacity
-                    style={{ borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', borderWidth: 1, borderColor: C.accent + '60', ...SHADOWS.sm }}
                     onPress={onStartDue}
                     activeOpacity={0.85}
                 >
-                    <LinearGradient colors={G.accent as [string, string]} style={{ flexDirection: 'row', alignItems: 'center', padding: SIZES.lg, gap: SIZES.md }}>
-                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' }}>
-                            <MaterialCommunityIcons name="cards-outline" size={28} color="#fff" />
+                    <AacaCard style={{ gap: SIZES.md, borderColor: C.accent + '42' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SIZES.md }}>
+                            <View style={{ width: 52, height: 52, borderRadius: SIZES.borderRadius, backgroundColor: C.accent + '14', justifyContent: 'center', alignItems: 'center' }}>
+                                <MaterialCommunityIcons name="cards-outline" size={28} color={C.accent} />
+                            </View>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={{ fontSize: SIZES.fontLg, fontWeight: '800', color: C.textPrimary }}>
+                                    {dueCards.length} carte{dueCards.length > 1 ? 's' : ''} à réviser
+                                </Text>
+                                <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, marginTop: 2 }}>
+                                    {"Session courte recommandée aujourd'hui"}
+                                </Text>
+                            </View>
+                            <View style={{ backgroundColor: C.accent, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}>
+                                <MaterialCommunityIcons name="play" size={18} color="#fff" />
+                            </View>
                         </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: SIZES.fontLg, fontWeight: '700', color: '#fff' }}>
-                                {dueCards.length} carte{dueCards.length > 1 ? 's' : ''} à réviser
-                            </Text>
-                            <Text style={{ fontSize: SIZES.fontSm, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>
-                                Démarrer la révision du jour
-                            </Text>
-                        </View>
-                        <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius }}>
-                            <Text style={{ fontSize: SIZES.fontSm, fontWeight: '700', color: '#fff' }}>Démarrer</Text>
-                        </View>
-                    </LinearGradient>
+                        <ProgressBar value={0.12} color={C.accent} />
+                    </AacaCard>
                 </TouchableOpacity>
             )}
             {[
-                { icon: 'cards-outline',           label: 'Flashcards',     desc: 'Répétition espacée SM-2 pour mémoriser durablement vos définitions et concepts clés.', color: C.primary },
-                { icon: 'clipboard-check-outline', label: 'Quiz adaptatif', desc: 'Questions QCM générées par IA depuis votre cours. Analysez vos points faibles.',        color: C.success },
+                { icon: 'cards-outline', label: 'Flashcards', desc: 'Répétition espacée', color: C.primary },
+                { icon: 'clipboard-check-outline', label: 'Quiz adaptatif', desc: 'Questions depuis un cours', color: C.success },
             ].map((item) => (
-                <TouchableOpacity key={item.label} style={{ borderRadius: SIZES.borderRadiusLg, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.sm }} onPress={() => router.push('/(tabs)/notes')} activeOpacity={0.85}>
-                    <LinearGradient colors={G.dark} style={{ flexDirection: 'row', alignItems: 'center', padding: SIZES.lg, gap: SIZES.md }}>
-                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: item.color + '30', justifyContent: 'center', alignItems: 'center' }}>
+                <TouchableOpacity key={item.label} onPress={() => router.push('/(tabs)/notes')} activeOpacity={0.85}>
+                    <AacaCard style={{ flexDirection: 'row', alignItems: 'center', gap: SIZES.md }}>
+                        <View style={{ width: 52, height: 52, borderRadius: SIZES.borderRadius, backgroundColor: item.color + '14', justifyContent: 'center', alignItems: 'center' }}>
                             <MaterialCommunityIcons name={item.icon as any} size={32} color={item.color} />
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: SIZES.fontLg, fontWeight: '700', color: C.textPrimary, marginBottom: 4 }}>{item.label}</Text>
+                            <Text style={{ fontSize: SIZES.fontLg, fontWeight: '800', color: C.textPrimary, marginBottom: 4 }}>{item.label}</Text>
                             <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, lineHeight: 18 }}>{item.desc}</Text>
                         </View>
                         <MaterialCommunityIcons name="chevron-right" size={20} color={C.textMuted} />
-                    </LinearGradient>
+                    </AacaCard>
                 </TouchableOpacity>
             ))}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, backgroundColor: C.warning + '15', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: C.warning + '30' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, backgroundColor: C.warning + '12', borderRadius: SIZES.borderRadius, padding: SIZES.md, borderWidth: 1, borderColor: C.warning + '30' }}>
                 <MaterialCommunityIcons name="lightbulb-outline" size={18} color={C.warning} />
                 <Text style={{ fontSize: SIZES.fontSm, flex: 1, lineHeight: 20, color: C.textSecondary }}>
-                    Ouvrez une note → appuyez sur <Text style={{ fontWeight: '700' }}>Quiz</Text> ou <Text style={{ fontWeight: '700' }}>Flashcards</Text> pour démarrer une session.
+                    Ouvrez une note pour lancer un quiz ou charger ses flashcards.
                 </Text>
             </View>
         </ScrollView>

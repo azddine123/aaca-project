@@ -10,6 +10,8 @@ import { useNotes } from '@/contexts/NotesContext';
 import { useAppearance, useAppColors, type Theme } from '@/contexts/AppearanceContext';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 import { API_URL } from '@/config/api';
+import { AacaCard, StatusBadge } from '@/components/UIKit';
+import { ZelligePattern } from '@/components/ZelligePattern';
 
 type MenuItem = {
     icon: string;
@@ -217,6 +219,8 @@ export default function ProfileScreen() {
     };
 
     const initial = (auth.userName || 'U').charAt(0).toUpperCase();
+    const subjectCount = new Set(notes.map((n: any) => n.subject).filter(Boolean)).size;
+    const latestNote = notes[0];
 
     const sections: { title: string; items: MenuItem[] }[] = [
         {
@@ -280,22 +284,37 @@ export default function ProfileScreen() {
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
             >
-                {/* ── Profile card ── */}
-                <LinearGradient colors={[C.surface, C.surfaceMid]} style={styles.profileCard}>
+                <View style={styles.profileCard}>
+                    <View style={styles.profilePattern}>
+                        <ZelligePattern color={C.primary} opacity={1} tileSize={30} cols={8} rows={5} />
+                    </View>
                     <LinearGradient colors={GRADIENTS.primary} style={styles.avatar}>
                         <Text style={styles.avatarText}>{initial}</Text>
                     </LinearGradient>
+                    <StatusBadge label="Espace étudiant" tone="info" icon="school-outline" />
                     <Text style={styles.userName}>{auth.userName || 'Étudiant'}</Text>
                     <Text style={styles.userEmail}>{auth.userEmail || ''}</Text>
 
                     <View style={styles.statsRow}>
                         <StatBadge icon="notebook-multiple" value={notes.length} label="Notes"  color={C.primary} C={C} />
                         <View style={styles.statsDivider} />
-                        <StatBadge icon="clipboard-check"  value="—"           label="Quiz"   color={C.success} C={C} />
+                        <StatBadge icon="shape-outline" value={subjectCount || '—'} label="Matières" color={C.accent} C={C} />
                         <View style={styles.statsDivider} />
-                        <StatBadge icon="chart-line"        value="—"           label="Score"  color={C.warning} C={C} />
+                        <StatBadge icon="clock-outline" value={latestNote ? 'Actif' : '—'} label="Statut" color={C.success} C={C} />
                     </View>
-                </LinearGradient>
+                </View>
+
+                <AacaCard style={styles.studyCard}>
+                    <View style={[styles.studyIcon, { backgroundColor: C.primary + '14' }]}>
+                        <MaterialCommunityIcons name="notebook-check-outline" size={22} color={C.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.studyTitle}>Carnet académique</Text>
+                        <Text style={styles.studySub} numberOfLines={2}>
+                            {latestNote ? `Dernière note : ${latestNote.title}` : 'Vos prochaines captures apparaîtront ici.'}
+                        </Text>
+                    </View>
+                </AacaCard>
 
                 {/* ── Achievement chips ── */}
                 <View style={styles.achieveRow}>
@@ -379,19 +398,35 @@ const makeStyles = (C: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
     content: { padding: SIZES.xl, paddingTop: 56, gap: SIZES.xl },
 
-    profileCard: { borderRadius: SIZES.borderRadiusLg, padding: SIZES.xl, alignItems: 'center', gap: SIZES.sm, borderWidth: 1, borderColor: C.border, ...SHADOWS.md },
+    profileCard: {
+        borderRadius: SIZES.borderRadius,
+        padding: SIZES.xl,
+        alignItems: 'center',
+        gap: SIZES.sm,
+        borderWidth: 1,
+        borderColor: C.border,
+        backgroundColor: C.surface,
+        overflow: 'hidden',
+        ...SHADOWS.md,
+    },
+    profilePattern: { position: 'absolute', right: -34, top: -24, width: 230, height: 160, opacity: 0.07 },
     avatar: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary },
     avatarText: { fontSize: 34, fontWeight: '800', color: '#fff' },
-    userName: { fontSize: SIZES.fontXl, fontWeight: '600', color: C.textPrimary, marginTop: 4 },
+    userName: { fontSize: SIZES.fontXl, fontWeight: '800', color: C.textPrimary, marginTop: 4 },
     userEmail: { fontSize: SIZES.fontSm, color: C.textSecondary },
 
     statsRow: { flexDirection: 'row', marginTop: SIZES.sm, width: '100%' },
     statsDivider: { width: 1, backgroundColor: C.border },
 
+    studyCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+    studyIcon: { width: 46, height: 46, borderRadius: SIZES.borderRadius, alignItems: 'center', justifyContent: 'center' },
+    studyTitle: { fontSize: SIZES.fontMd, color: C.textPrimary, fontWeight: '800' },
+    studySub: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 18, marginTop: 2 },
+
     achieveRow: { flexDirection: 'row', gap: SIZES.sm },
 
     menuSection: { gap: SIZES.sm },
-    sectionTitle: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 1, paddingLeft: 4 },
+    sectionTitle: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0, paddingLeft: 4 },
     menuCard: { backgroundColor: C.surface, borderRadius: SIZES.borderRadius, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.sm },
     menuItem: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md },
     menuItemBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
