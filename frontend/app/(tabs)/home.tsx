@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet,
     TouchableOpacity, RefreshControl,
@@ -8,10 +8,12 @@ import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
+import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { ZelligePattern } from '@/components/ZelligePattern';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { API_URL } from '@/config/api';
+import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 
 interface Stats {
     total_notes: number;
@@ -21,96 +23,37 @@ interface Stats {
     study_streak: number;
 }
 
-// ── Moroccan Design Tokens ───────────────────────────────────────────
-const T = {
-    bg:           '#F0F2F5',
-    surface:      '#FFFFFF',
-    surfaceAlt:   '#F7F8FA',
-    text:         '#1C1E21',
-    textMuted:    '#65676B',
-    textFaint:    '#8A8D91',
-    border:       '#E4E6EB',
-    borderSoft:   '#EEF0F3',
-    cobalt:       '#1B4FD8',
-    cobaltDeep:   '#143FAE',
-    cobaltSoft:   '#E8EEFC',
-    terracotta:   '#C1440E',
-    terracottaSoft: '#FBE9E0',
-    gold:         '#D4A017',
-    goldSoft:     '#FAF1D9',
-    saffron:      '#F59E0B',
-    saffronSoft:  '#FEF1D6',
-    green:        '#1F8A5B',
-    greenSoft:    '#E2F1EA',
-} as const;
-
-// ── Subject map (matches backend SubjectCategory)
-const SUBJ: Record<string, { fg: string; soft: string; glyph: string; label: string }> = {
-    mathematics: { fg: '#1B4FD8', soft: '#E8EEFC', glyph: '∫', label: 'Math' },
-    physics:     { fg: '#C1440E', soft: '#FBE9E0', glyph: 'φ', label: 'Physique' },
-    biology:     { fg: '#1F8A5B', soft: '#E2F1EA', glyph: '⌬', label: 'Biologie' },
-    cs:          { fg: '#F59E0B', soft: '#FEF1D6', glyph: '{ }', label: 'Informatique' },
-    chemistry:   { fg: '#7C3AED', soft: '#EFE7FB', glyph: '⚗', label: 'Chimie' },
-    history:     { fg: '#D4A017', soft: '#FAF1D9', glyph: '§',  label: 'Histoire' },
-    engineering: { fg: '#06B6D4', soft: '#E0F7FA', glyph: '⚙', label: 'Ingénierie' },
-    economics:   { fg: '#EAB308', soft: '#FEF9C3', glyph: '€', label: 'Économie' },
-    literature:  { fg: '#EC4899', soft: '#FCE7F3', glyph: 'L',  label: 'Littérature' },
-    philosophy:  { fg: '#64748B', soft: '#F1F5F9', glyph: 'Φ', label: 'Philo' },
-    other:       { fg: '#6B7280', soft: '#F3F4F6', glyph: '?', label: 'Autre' },
+const SUBJECT_ICONS: Record<string, string> = {
+    mathematics: 'function-variant',
+    physics:     'atom',
+    chemistry:   'flask-outline',
+    biology:     'leaf-outline',
+    cs:          'code-braces',
+    engineering: 'cog-outline',
+    economics:   'chart-areaspline',
+    literature:  'book-open-outline',
+    history:     'castle',
+    philosophy:  'lightbulb-outline',
 };
 
-function getSubj(key: string) {
-    return SUBJ[key] ?? SUBJ.other;
+function getSubjectIcon(subject: string): string {
+    return SUBJECT_ICONS[subject] || 'file-document-outline';
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
 function formatDate(d: string | undefined): string {
     if (!d) return '';
     try { return formatDistanceToNow(new Date(d), { addSuffix: true, locale: fr }); }
     catch { return ''; }
 }
 
-// ── Sub-components ────────────────────────────────────────────────────
-
-function SubjectPill({ subject }: { subject: string }) {
-    const c = getSubj(subject);
-    return (
-        <View style={[pill.wrap, { backgroundColor: c.soft }]}>
-            <View style={[pill.dot, { backgroundColor: c.fg }]} />
-            <Text style={[pill.label, { color: c.fg }]}>{c.label}</Text>
-        </View>
-    );
-}
-const pill = StyleSheet.create({
-    wrap:  { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-    dot:   { width: 5, height: 5, borderRadius: 3 },
-    label: { fontSize: 11, fontWeight: '600' },
-});
-
-function SectionHeader({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
-    return (
-        <View style={sh.wrap}>
-            <Text style={sh.title}>{title}</Text>
-            {action && (
-                <TouchableOpacity onPress={onAction} style={sh.btn} activeOpacity={0.7}>
-                    <Text style={sh.action}>{action}</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={14} color={T.cobalt} />
-                </TouchableOpacity>
-            )}
-        </View>
-    );
-}
-const sh = StyleSheet.create({
-    wrap:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
-    title:  { fontSize: 16, fontWeight: '800', color: T.text, letterSpacing: -0.3 },
-    btn:    { flexDirection: 'row', alignItems: 'center', gap: 2 },
-    action: { fontSize: 12, fontWeight: '600', color: T.cobalt },
-});
-
 // ── Main Screen ───────────────────────────────────────────────────────
 export default function HomeScreen() {
     const { auth, authFetch } = useAuth();
     const { notes, fetchNotes, isLoading } = useNotes();
+    const C = useAppColors();
+    const G = useAppGradients();
+    const styles = useMemo(() => makeStyles(C), [C]);
+
     const [stats, setStats] = useState<Stats | null>(null);
 
     const fetchStats = useCallback(async () => {
@@ -133,72 +76,75 @@ export default function HomeScreen() {
 
     return (
         <ScrollView
-            style={s.container}
-            contentContainerStyle={s.content}
+            style={styles.container}
+            contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
             refreshControl={
-                <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={T.cobalt} colors={[T.cobalt]} />
+                <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={C.primary} colors={[C.primary]} />
             }
         >
             {/* ── Header ── */}
-            <View style={s.header}>
-                <View>
-                    <Text style={s.greeting}>Bonjour, {firstName}</Text>
-                    <Text style={s.headline}>Prête à réviser ?</Text>
+            <View style={styles.header}>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.greeting}>Bonjour, {firstName} 👋</Text>
+                    <Text style={styles.headline}>Prêt à réviser ?</Text>
                 </View>
-                <View style={s.avatar}>
+                <TouchableOpacity
+                    style={styles.avatarWrap}
+                    onPress={() => router.push('/(tabs)/profile')}
+                    activeOpacity={0.85}
+                >
                     <LinearGradient
-                        colors={[T.cobaltSoft, T.goldSoft]}
+                        colors={G.primary}
                         style={StyleSheet.absoluteFillObject}
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                     />
-                    <Text style={s.avatarText}>{initials}</Text>
-                </View>
+                    <Text style={styles.avatarText}>{initials}</Text>
+                </TouchableOpacity>
             </View>
 
             {/* ── Streak Hero Card ── */}
-            <View style={s.hPad}>
-                <View style={s.streakCard}>
+            <View style={styles.hPad}>
+                <View style={styles.streakCard}>
                     <LinearGradient
-                        colors={[T.cobalt, T.cobaltDeep]}
+                        colors={G.primary}
                         style={StyleSheet.absoluteFillObject}
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                     />
-                    {/* Zellige watermark top-right */}
-                    <View style={s.streakZellige} pointerEvents="none">
+                    {/* Zellige watermark */}
+                    <View style={styles.streakZellige} pointerEvents="none">
                         <ZelligePattern color="#ffffff" opacity={1} tileSize={32} cols={7} rows={6} />
                     </View>
 
-                    <View style={s.streakInner}>
+                    <View style={styles.streakInner}>
                         {/* Left — streak info */}
                         <View>
-                            <View style={s.streakLabelRow}>
+                            <View style={styles.streakLabelRow}>
                                 <MaterialCommunityIcons name="fire" size={14} color="#fff" />
-                                <Text style={s.streakLabel}>Série d'étude</Text>
+                                <Text style={styles.streakLabel}>Série d'étude</Text>
                             </View>
-                            <View style={s.streakNumRow}>
-                                <Text style={s.streakNum}>{stats?.study_streak ?? 0}</Text>
-                                <Text style={s.streakUnit}>jours</Text>
+                            <View style={styles.streakNumRow}>
+                                <Text style={styles.streakNum}>{stats?.study_streak ?? 0}</Text>
+                                <Text style={styles.streakUnit}>jours</Text>
                             </View>
-                            <Text style={s.streakSub}>{stats?.total_notes ?? 0} note{(stats?.total_notes ?? 0) > 1 ? 's' : ''} au total</Text>
+                            <Text style={styles.streakSub}>{stats?.total_notes ?? 0} note{(stats?.total_notes ?? 0) > 1 ? 's' : ''} au total</Text>
                         </View>
 
                         {/* Right — week dots */}
-                        <View style={s.weekRow}>
+                        <View style={styles.weekRow}>
                             {['L','M','M','J','V','S','D'].map((d, i) => {
-                                const done = i <= 5;
+                                const done = i <= 4;
+                                const today = i === 5;
                                 return (
-                                    <View key={i} style={s.weekCol}>
+                                    <View key={i} style={styles.weekCol}>
                                         <View style={[
-                                            s.weekDot,
-                                            done ? s.weekDotDone : s.weekDotEmpty,
-                                            i === 5 && { borderWidth: 2, borderColor: T.gold },
+                                            styles.weekDot,
+                                            done ? styles.weekDotDone : styles.weekDotEmpty,
+                                            today && { borderWidth: 2, borderColor: '#FFD700' },
                                         ]}>
-                                            {done && (
-                                                <MaterialCommunityIcons name="check" size={10} color={T.cobaltDeep} />
-                                            )}
+                                            {done && <MaterialCommunityIcons name="check" size={10} color={C.primaryDark} />}
                                         </View>
-                                        <Text style={s.weekDay}>{d}</Text>
+                                        <Text style={styles.weekDay}>{d}</Text>
                                     </View>
                                 );
                             })}
@@ -208,129 +154,126 @@ export default function HomeScreen() {
             </View>
 
             {/* ── Stats Row ── */}
-            <View style={s.statsRow}>
+            <View style={styles.statsRow}>
                 {[
-                    { v: String(stats?.total_notes ?? notes.length),     l: 'Notes',     c: T.cobalt },
-                    { v: String(stats?.total_flashcards ?? '—'),          l: 'Cartes',    c: T.terracotta },
-                    { v: stats ? `${stats.average_score}%` : '—',        l: 'Précision', c: T.green },
+                    { v: String(stats?.total_notes ?? notes.length),     l: 'Notes',     color: C.primary },
+                    { v: String(stats?.total_flashcards ?? '—'),          l: 'Cartes',    color: C.accent },
+                    { v: stats ? `${stats.average_score}%` : '—',        l: 'Précision', color: C.success },
                 ].map((stat, i) => (
-                    <View key={i} style={s.statCard}>
-                        <Text style={[s.statValue, { color: stat.c }]}>{stat.v}</Text>
-                        <Text style={s.statLabel}>{stat.l}</Text>
+                    <View key={i} style={styles.statCard}>
+                        <Text style={[styles.statValue, { color: stat.color }]}>{stat.v}</Text>
+                        <Text style={styles.statLabel}>{stat.l}</Text>
                     </View>
                 ))}
             </View>
 
             {/* ── Flashcards due today ── */}
-            <SectionHeader
-                title="À réviser aujourd'hui"
-                action="Tout voir"
-                onAction={() => router.push('/(tabs)/study')}
-            />
-            <View style={s.hPad}>
-                <View style={s.flashCard}>
-                    {/* Gold gradient top bar */}
+            <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>À réviser aujourd'hui</Text>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/study')} style={styles.sectionAction} activeOpacity={0.7}>
+                    <Text style={styles.sectionActionText}>Tout voir</Text>
+                    <MaterialCommunityIcons name="chevron-right" size={14} color={C.primary} />
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.hPad}>
+                <View style={styles.flashCard}>
+                    {/* Gradient accent top bar */}
                     <LinearGradient
-                        colors={[T.gold, T.saffron, T.terracotta]}
-                        style={s.flashTopBar}
+                        colors={G.accent}
+                        style={styles.flashTopBar}
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                     />
-                    <View style={s.flashBody}>
+                    <View style={styles.flashBody}>
                         {/* Icon with badge */}
-                        <View style={s.flashIconWrap}>
-                            <LinearGradient
-                                colors={[T.saffronSoft, T.goldSoft]}
-                                style={StyleSheet.absoluteFillObject}
-                                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                            />
-                            <MaterialCommunityIcons name="cards-outline" size={24} color={T.saffron} />
+                        <View style={[styles.flashIconWrap, { backgroundColor: C.accent + '20' }]}>
+                            <MaterialCommunityIcons name="cards-outline" size={24} color={C.accent} />
                             {(stats?.flashcards_due_count ?? 0) > 0 && (
-                                <View style={s.flashBadge}>
-                                    <Text style={s.flashBadgeText}>{stats!.flashcards_due_count}</Text>
+                                <View style={[styles.flashBadge, { backgroundColor: C.error }]}>
+                                    <Text style={styles.flashBadgeText}>{stats!.flashcards_due_count}</Text>
                                 </View>
                             )}
                         </View>
                         {/* Text */}
                         <View style={{ flex: 1 }}>
-                            <Text style={s.flashTitle}>
+                            <Text style={styles.flashTitle}>
                                 {stats ? `${stats.flashcards_due_count} carte${stats.flashcards_due_count !== 1 ? 's' : ''} à réviser` : 'Flashcards à réviser'}
                             </Text>
-                            <Text style={s.flashSub}>≈ {Math.max(1, Math.round((stats?.flashcards_due_count ?? 0) / 3))} min · répétition espacée</Text>
+                            <Text style={styles.flashSub}>≈ {Math.max(1, Math.round((stats?.flashcards_due_count ?? 0) / 3))} min · répétition espacée</Text>
                         </View>
                         {/* Button */}
                         <TouchableOpacity
-                            style={s.flashBtn}
+                            style={[styles.flashBtn, { backgroundColor: C.primary }]}
                             onPress={() => router.push('/(tabs)/study')}
                             activeOpacity={0.85}
                         >
-                            <Text style={s.flashBtnText}>Démarrer</Text>
+                            <Text style={styles.flashBtnText}>Démarrer</Text>
                         </TouchableOpacity>
                     </View>
-                    {/* Progress bar — mastered vs total */}
+                    {/* Progress bar */}
                     {stats && stats.total_flashcards > 0 && (
-                        <View style={s.flashProgressRow}>
-                            <View style={s.flashProgressBg}>
+                        <View style={styles.flashProgressRow}>
+                            <View style={[styles.flashProgressBg, { backgroundColor: C.border }]}>
                                 <LinearGradient
-                                    colors={[T.cobalt, T.saffron]}
-                                    style={[s.flashProgressFill, { width: `${Math.round(((stats.total_flashcards - stats.flashcards_due_count) / stats.total_flashcards) * 100)}%` }]}
+                                    colors={G.primary}
+                                    style={[styles.flashProgressFill, { width: `${Math.round(((stats.total_flashcards - stats.flashcards_due_count) / stats.total_flashcards) * 100)}%` }]}
                                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                                 />
                             </View>
-                            <Text style={s.flashProgressText}>{stats.total_flashcards - stats.flashcards_due_count}/{stats.total_flashcards}</Text>
+                            <Text style={styles.flashProgressText}>{stats.total_flashcards - stats.flashcards_due_count}/{stats.total_flashcards}</Text>
                         </View>
                     )}
                 </View>
             </View>
 
             {/* ── Recent Notes ── */}
-            <SectionHeader
-                title="Notes récentes"
-                action="Voir tout"
-                onAction={() => router.push('/(tabs)/notes')}
-            />
+            <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Notes récentes</Text>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/notes')} style={styles.sectionAction} activeOpacity={0.7}>
+                    <Text style={styles.sectionActionText}>Voir tout</Text>
+                    <MaterialCommunityIcons name="chevron-right" size={14} color={C.primary} />
+                </TouchableOpacity>
+            </View>
 
             {recentNotes.length === 0 ? (
-                <View style={s.empty}>
-                    <MaterialCommunityIcons name="notebook-plus-outline" size={48} color={T.textFaint} />
-                    <Text style={s.emptyTitle}>Aucune note pour l'instant</Text>
-                    <Text style={s.emptySub}>
-                        Capturez votre premier cours avec le bouton ci-dessous.
-                    </Text>
+                <View style={styles.empty}>
+                    <View style={[styles.emptyIconWrap, { backgroundColor: C.primary + '18' }]}>
+                        <MaterialCommunityIcons name="notebook-plus-outline" size={32} color={C.primary} />
+                    </View>
+                    <Text style={styles.emptyTitle}>Aucune note pour l'instant</Text>
+                    <Text style={styles.emptySub}>Capturez votre premier cours avec le bouton ci-dessous.</Text>
                 </View>
             ) : (
-                <View style={s.notesWrap}>
+                <View style={styles.notesWrap}>
                     {recentNotes.map((note: any) => {
-                        const c = getSubj(note.subject);
+                        const color = SUBJECT_COLORS[note.subject] || C.primary;
+                        const icon = getSubjectIcon(note.subject);
                         return (
                             <TouchableOpacity
                                 key={note.id}
-                                style={s.noteCardWrap}
+                                style={styles.noteCard}
                                 onPress={() => router.push({ pathname: '/note-detail', params: { id: note.id } })}
                                 activeOpacity={0.8}
                             >
-                                <View style={[s.noteCard, { borderLeftColor: c.fg }]}>
-                                    {/* Subject icon with zellige texture */}
-                                    <View style={[s.noteIcon, { backgroundColor: c.soft }]}>
-                                        <ZelligePattern color={c.fg} opacity={0.45} tileSize={18} cols={4} rows={4} />
-                                        <Text style={[s.noteGlyph, { color: c.fg }]}>{c.glyph}</Text>
-                                    </View>
-                                    {/* Content */}
-                                    <View style={s.noteBody}>
-                                        <View style={s.notePillRow}>
-                                            <SubjectPill subject={note.subject} />
-                                            <Text style={s.noteTime}>{formatDate(note.created_at)}</Text>
-                                        </View>
-                                        <Text style={s.noteTitle} numberOfLines={1}>{note.title}</Text>
-                                        <View style={s.noteMeta}>
-                                            <MaterialCommunityIcons name="file-document-outline" size={11} color={T.textMuted} />
-                                            <Text style={s.noteMetaText}>{note.pages ?? '—'} p.</Text>
-                                            <View style={s.metaDot} />
-                                            <MaterialCommunityIcons name="cards-outline" size={11} color={T.textMuted} />
-                                            <Text style={s.noteMetaText}>{note.flashcards?.length ?? '—'} cartes</Text>
-                                        </View>
-                                    </View>
-                                    <MaterialCommunityIcons name="chevron-right" size={16} color={T.textFaint} />
+                                <View style={[styles.noteAccent, { backgroundColor: color }]} />
+                                <View style={[styles.noteIcon, { backgroundColor: color + '20' }]}>
+                                    <MaterialCommunityIcons name={icon as any} size={18} color={color} />
                                 </View>
+                                <View style={styles.noteBody}>
+                                    <View style={styles.notePillRow}>
+                                        <View style={[styles.notePill, { backgroundColor: color + '18' }]}>
+                                            <View style={[styles.notePillDot, { backgroundColor: color }]} />
+                                            <Text style={[styles.notePillText, { color }]}>{SUBJECT_LABELS[note.subject] || 'Autre'}</Text>
+                                        </View>
+                                        <Text style={styles.noteTime}>{formatDate(note.created_at)}</Text>
+                                    </View>
+                                    <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+                                    <View style={styles.noteMeta}>
+                                        <MaterialCommunityIcons name="cards-outline" size={11} color={C.textMuted} />
+                                        <Text style={styles.noteMetaText}>{note.flashcards?.length ?? '—'} cartes</Text>
+                                    </View>
+                                </View>
+                                <MaterialCommunityIcons name="chevron-right" size={16} color={C.textMuted} />
                             </TouchableOpacity>
                         );
                     })}
@@ -338,17 +281,20 @@ export default function HomeScreen() {
             )}
 
             {/* ── Capture prompt ── */}
-            <View style={s.hPad16}>
+            <View style={styles.hPad16}>
                 <TouchableOpacity
-                    style={s.capturePrompt}
+                    style={styles.capturePrompt}
                     onPress={() => router.push('/capture')}
                     activeOpacity={0.8}
                 >
-                    <MaterialCommunityIcons name="camera-plus-outline" size={16} color={T.cobalt} />
-                    <View>
-                        <Text style={s.captureTitle}>Capturer de nouvelles notes</Text>
-                        <Text style={s.captureSub}>Photo, PDF ou import depuis la galerie</Text>
+                    <View style={[styles.captureIcon, { backgroundColor: C.primary + '18' }]}>
+                        <MaterialCommunityIcons name="camera-plus-outline" size={20} color={C.primary} />
                     </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.captureTitle}>Capturer de nouvelles notes</Text>
+                        <Text style={styles.captureSub}>Photo ou import depuis la galerie</Text>
+                    </View>
+                    <MaterialCommunityIcons name="arrow-right" size={16} color={C.primary} />
                 </TouchableOpacity>
             </View>
 
@@ -358,31 +304,23 @@ export default function HomeScreen() {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────
-const CARD_SHADOW = {
-    shadowColor: '#14203C',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 14,
-    elevation: 3,
-} as const;
-
-const s = StyleSheet.create({
-    container: { flex: 1, backgroundColor: T.bg },
+const makeStyles = (C: any) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background },
     content:   { paddingBottom: 32 },
 
     // Header
-    header:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14 },
-    greeting:   { fontSize: 14, color: T.textMuted, fontWeight: '500' },
-    headline:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, marginTop: 2, color: T.text },
-    avatar:     { width: 44, height: 44, borderRadius: 22, overflow: 'hidden', borderWidth: 1, borderColor: T.border, justifyContent: 'center', alignItems: 'center' },
-    avatarText: { fontSize: 16, fontWeight: '700', color: T.cobalt },
+    header:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: 14 },
+    greeting:   { fontSize: SIZES.fontSm, color: C.textSecondary, fontWeight: '500' },
+    headline:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, marginTop: 2, color: C.textPrimary },
+    avatarWrap: { width: 44, height: 44, borderRadius: 22, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary },
+    avatarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 
     // Paddings
-    hPad:   { paddingHorizontal: 16 },
-    hPad16: { paddingHorizontal: 16, paddingTop: 18 },
+    hPad:   { paddingHorizontal: SIZES.md },
+    hPad16: { paddingHorizontal: SIZES.md, paddingTop: SIZES.lg },
 
     // Streak card
-    streakCard:     { borderRadius: 22, overflow: 'hidden', padding: 18, shadowColor: T.cobalt, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 28, elevation: 12 },
+    streakCard:     { borderRadius: 22, overflow: 'hidden', padding: 18, ...SHADOWS.primary },
     streakZellige:  { position: 'absolute', right: -30, top: -30, width: 230, height: 200, opacity: 0.18 },
     streakInner:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     streakLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
@@ -399,48 +337,71 @@ const s = StyleSheet.create({
     weekDay:        { fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
 
     // Stats
-    statsRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 14, gap: 10 },
-    statCard:  { flex: 1, backgroundColor: T.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: T.borderSoft, ...CARD_SHADOW },
+    statsRow: { flexDirection: 'row', paddingHorizontal: SIZES.md, paddingTop: 14, gap: 10 },
+    statCard: {
+        flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 12,
+        borderWidth: 1, borderColor: C.border,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    },
     statValue: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
-    statLabel: { fontSize: 11, color: T.textMuted, fontWeight: '500', marginTop: 2 },
+    statLabel: { fontSize: 11, color: C.textMuted, fontWeight: '500', marginTop: 2 },
+
+    // Section header
+    sectionHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: SIZES.lg, paddingBottom: SIZES.sm },
+    sectionTitle:      { fontSize: SIZES.fontLg, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.2 },
+    sectionAction:     { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    sectionActionText: { fontSize: SIZES.fontXs, fontWeight: '600', color: C.primary },
 
     // Flashcard due
-    flashCard:        { backgroundColor: T.surface, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: T.borderSoft, ...CARD_SHADOW },
+    flashCard:        { backgroundColor: C.surface, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: C.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 12, elevation: 3 },
     flashTopBar:      { height: 3 },
     flashBody:        { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-    flashIconWrap:    { width: 50, height: 50, borderRadius: 14, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
-    flashBadge:       { position: 'absolute', top: -4, right: -4, backgroundColor: T.terracotta, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff' },
+    flashIconWrap:    { width: 50, height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+    flashBadge:       { position: 'absolute', top: -4, right: -4, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: C.surface },
     flashBadgeText:   { fontSize: 10, fontWeight: '700', color: '#fff' },
-    flashTitle:       { fontSize: 15, fontWeight: '700', color: T.text },
-    flashSub:         { fontSize: 12, color: T.textMuted, marginTop: 2 },
-    flashBtn:         { backgroundColor: T.cobalt, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, shadowColor: T.cobalt, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 },
+    flashTitle:       { fontSize: 15, fontWeight: '700', color: C.textPrimary },
+    flashSub:         { fontSize: 12, color: C.textSecondary, marginTop: 2 },
+    flashBtn:         { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, ...SHADOWS.primary },
     flashBtnText:     { fontSize: 13, fontWeight: '700', color: '#fff', letterSpacing: 0.1 },
     flashProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingBottom: 14 },
-    flashProgressBg:  { flex: 1, height: 5, borderRadius: 999, backgroundColor: T.borderSoft, overflow: 'hidden' },
+    flashProgressBg:  { flex: 1, height: 5, borderRadius: 999, overflow: 'hidden' },
     flashProgressFill:{ height: '100%' as any, borderRadius: 999 },
-    flashProgressText:{ fontSize: 11, color: T.textMuted, fontWeight: '600' },
+    flashProgressText:{ fontSize: 11, color: C.textMuted, fontWeight: '600' },
 
     // Note cards
-    notesWrap:    { paddingHorizontal: 16, gap: 10 },
-    noteCardWrap: { ...CARD_SHADOW },
-    noteCard:     { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: T.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: T.borderSoft, borderLeftWidth: 3, overflow: 'hidden' },
-    noteIcon:     { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', flexShrink: 0, overflow: 'hidden' },
-    noteGlyph:    { fontSize: 18, fontWeight: '800' },
-    noteBody:     { flex: 1, minWidth: 0 },
-    notePillRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
-    noteTitle:    { fontSize: 14, fontWeight: '700', color: T.text },
-    noteTime:     { fontSize: 11, color: T.textFaint, fontWeight: '500' },
-    noteMeta:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-    noteMetaText: { fontSize: 11, color: T.textMuted },
-    metaDot:      { width: 2, height: 2, borderRadius: 1, backgroundColor: T.textFaint },
-
-    // Capture prompt
-    capturePrompt: { backgroundColor: T.surface, borderWidth: 1.5, borderStyle: 'dashed', borderColor: T.border, borderRadius: 18, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    captureTitle:  { fontSize: 13, fontWeight: '600', color: T.text },
-    captureSub:    { fontSize: 11, color: T.textMuted, marginTop: 3 },
+    notesWrap: { paddingHorizontal: SIZES.md, gap: 8 },
+    noteCard:  {
+        flexDirection: 'row', alignItems: 'center', gap: 10,
+        backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden',
+        borderWidth: 1, borderColor: C.border,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    },
+    noteAccent:    { width: 3, alignSelf: 'stretch' },
+    noteIcon:      { width: 40, height: 40, borderRadius: 10, justifyContent: 'center', alignItems: 'center', flexShrink: 0, marginLeft: 2 },
+    noteBody:      { flex: 1, minWidth: 0, paddingVertical: 12, paddingRight: 4 },
+    notePillRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+    notePill:      { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
+    notePillDot:   { width: 4, height: 4, borderRadius: 2 },
+    notePillText:  { fontSize: 10, fontWeight: '600' },
+    noteTitle:     { fontSize: 14, fontWeight: '700', color: C.textPrimary },
+    noteTime:      { fontSize: 10, color: C.textMuted, fontWeight: '400', marginLeft: 'auto' },
+    noteMeta:      { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+    noteMetaText:  { fontSize: 11, color: C.textMuted },
 
     // Empty state
-    empty:      { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32, gap: 10 },
-    emptyTitle: { fontSize: 16, fontWeight: '600', color: T.textMuted, textAlign: 'center' },
-    emptySub:   { fontSize: 13, color: T.textFaint, textAlign: 'center', lineHeight: 20 },
+    empty:        { alignItems: 'center', paddingVertical: SIZES.xxxl, paddingHorizontal: SIZES.xxl, gap: SIZES.sm },
+    emptyIconWrap:{ width: 64, height: 64, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.xs },
+    emptyTitle:   { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textSecondary, textAlign: 'center' },
+    emptySub:     { fontSize: SIZES.fontSm, color: C.textMuted, textAlign: 'center', lineHeight: 20 },
+
+    // Capture prompt
+    capturePrompt: {
+        backgroundColor: C.surface, borderWidth: 1.5, borderStyle: 'dashed',
+        borderColor: C.primary + '50', borderRadius: 16, padding: 14,
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+    },
+    captureIcon:   { width: 40, height: 40, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+    captureTitle:  { fontSize: 13, fontWeight: '600', color: C.textPrimary },
+    captureSub:    { fontSize: 11, color: C.textSecondary, marginTop: 2 },
 });
