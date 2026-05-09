@@ -68,6 +68,8 @@ class MongoDBService:
         await self.db.quizzes.create_index("user_id")
         await self.db.flashcards.create_index("note_id")
         await self.db.flashcards.create_index([("user_id", ASCENDING), ("next_review", ASCENDING)])
+        await self.db.sessions.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+        await self.db.captures.create_index([("session_id", ASCENDING), ("order", ASCENDING)])
         logger.info("✅ Index MongoDB créés")
 
     def _get_collection(self, name: str):
@@ -533,6 +535,156 @@ class MongoDBService:
             upsert=True,
         )
         return True
+
+    # ============== Cascade Delete Helpers ==============
+
+    async def delete_quizzes_by_note(self, note_id: str) -> int:
+        """Delete all quizzes belonging to a note. Returns deleted count."""
+        collection = self._get_collection("quizzes")
+        if collection is None:
+            return 0
+        result = await collection.delete_many({"note_id": note_id})
+        return result.deleted_count
+
+    async def delete_flashcards_by_note(self, note_id: str) -> int:
+        """Delete all flashcards belonging to a note. Returns deleted count."""
+        collection = self._get_collection("flashcards")
+        if collection is None:
+            return 0
+        result = await collection.delete_many({"note_id": note_id})
+        return result.deleted_count
+
+    # ============== Course Session Operations ==============
+
+    async def create_session(self, session_data: dict[str, Any]) -> str:
+        """Create a new course session."""
+        collection = self._get_collection("sessions")
+        if collection is None:
+            raise ServiceUnavailableError("MongoDB")
+
+        session_data["_id"] = ObjectId()
+        session_data["id"] = str(session_data["_id"])
+        session_data["created_at"] = datetime.now()
+        session_data["updated_at"] = datetime.now()
+
+        await collection.insert_one(session_data)
+        return session_data["id"]
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        """Get a course session by ID."""
+        collection = self._get_collection("sessions")
+        if collection is None:
+            return None
+
+        try:
+            oid = ObjectId(session_id)
+        except InvalidId:
+            return None
+
+        session = await collection.find_one({"_id": oid})
+        if session:
+            session["id"] = str(session.pop("_id"))
+            return _sanitize(session)
+        return None
+
+    async def get_user_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        """Get all sessions for a user, newest first."""
+        collection = self._get_collection("sessions")
+        if collection is None:
+            return []
+
+        cursor = collection.find({"user_id": user_id}).sort("created_at", DESCENDING)
+        sessions = await cursor.to_list(length=None)
+
+        result = []
+        for s in sessions:
+            s["id"] = str(s.pop("_id"))
+            result.append(s)
+
+        return _sanitize(result)
+
+    async def update_session(self, session_id: str, update_data: dict[str, Any]) -> bool:
+        """Update a course session."""
+        collection = self._get_collection("sessions")
+        if collection is None:
+            return False
+
+        try:
+            oid = ObjectId(session_id)
+        except InvalidId:
+            return False
+
+        update_data["updated_at"] = datetime.now()
+        result = await collection.update_one(
+            {"_id": oid},
+            {"$set": update_data},
+        )
+        return result.modified_count > 0
+
+    # ============== Capture Operations ==============
+
+    async def create_capture(self, capture_data: dict[str, Any]) -> str:
+        """Create a new capture within a session."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            raise ServiceUnavailableError("MongoDB")
+
+        capture_data["_id"] = ObjectId()
+        capture_data["id"] = str(capture_data["_id"])
+        capture_data["created_at"] = datetime.now()
+
+        await collection.insert_one(capture_data)
+        return capture_data["id"]
+
+    async def get_capture(self, capture_id: str) -> dict[str, Any] | None:
+        """Get a capture by ID."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            return None
+
+        try:
+            oid = ObjectId(capture_id)
+        except InvalidId:
+            return None
+
+        capture = await collection.find_one({"_id": oid})
+        if capture:
+            capture["id"] = str(capture.pop("_id"))
+            return _sanitize(capture)
+        return None
+
+    async def get_session_captures(self, session_id: str) -> list[dict[str, Any]]:
+        """Get all captures for a session, ordered by `order` ASC."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            return []
+
+        cursor = collection.find({"session_id": session_id}).sort("order", ASCENDING)
+        captures = await cursor.to_list(length=None)
+
+        result = []
+        for c in captures:
+            c["id"] = str(c.pop("_id"))
+            result.append(c)
+
+        return _sanitize(result)
+
+    async def update_capture(self, capture_id: str, update_data: dict[str, Any]) -> bool:
+        """Update a capture (e.g. corrected_text)."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            return False
+
+        try:
+            oid = ObjectId(capture_id)
+        except InvalidId:
+            return False
+
+        result = await collection.update_one(
+            {"_id": oid},
+            {"$set": update_data},
+        )
+        return result.modified_count > 0
 
     # ============== Image Storage (GridFS) ==============
 

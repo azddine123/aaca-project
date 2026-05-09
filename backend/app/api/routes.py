@@ -23,7 +23,11 @@ from app.core.security import (
     verify_password,
 )
 from app.models.schemas import (
+    Capture,
+    CaptureUpdate,
     CognitiveLevel,
+    CourseSession,
+    CourseSessionCreate,
     Flashcard,
     FlashcardReview,
     Note,
@@ -34,6 +38,7 @@ from app.models.schemas import (
     QuizSubmission,
     SearchRequest,
     SearchResult,
+    SessionStatus,
     SubjectCategory,
     SummaryRequest,
     SummaryResponse,
@@ -489,10 +494,16 @@ async def delete_note(
     note_id: str,
     current_user: str = Depends(get_current_user),
 ) -> dict:
-    """Delete a note."""
+    """Delete a note and cascade-delete its quizzes and flashcards."""
     await _get_owned_note(note_id, current_user)
 
+    await mongodb_service.delete_quizzes_by_note(note_id)
+    await mongodb_service.delete_flashcards_by_note(note_id)
     await mongodb_service.delete_note(note_id)
+    try:
+        rag_service.remove_note(current_user, note_id)
+    except Exception as e:
+        logger.warning(f"RAG remove_note failed: {e}")
     return {"message": "Note deleted successfully"}
 
 
@@ -650,6 +661,35 @@ async def submit_quiz(
         "user_id": current_user,
         "quiz_id": quiz_id,
         **result.model_dump(),
+    })
+
+    # Update progress: total quizzes, average score, streak, weak areas
+    progress = await mongodb_service.get_or_create_progress(current_user)
+    prev_total = progress.get("total_quizzes_taken", 0)
+    prev_avg = progress.get("average_score", 0.0)
+    new_total = prev_total + 1
+    new_avg = round((prev_avg * prev_total + score) / new_total, 2)
+
+    last_activity = progress.get("last_activity")
+    today = datetime.now().date()
+    if last_activity:
+        last_date = last_activity.date() if hasattr(last_activity, "date") else datetime.fromisoformat(str(last_activity)).date()
+        delta = (today - last_date).days
+        if delta == 1:
+            streak = progress.get("study_streak", 0) + 1
+        elif delta == 0:
+            streak = progress.get("study_streak", 0)
+        else:
+            streak = 1
+    else:
+        streak = 1
+
+    await mongodb_service.update_progress(current_user, {
+        "total_quizzes_taken": new_total,
+        "average_score": new_avg,
+        "study_streak": streak,
+        "last_activity": datetime.now(),
+        "weak_areas": error_analysis.get("weak_areas", []),
     })
 
     return result
@@ -866,6 +906,218 @@ async def get_subjects() -> dict:
             {"id": s.value, "name": s.value.replace("_", " ").title()}
             for s in SubjectCategory
         ]
+    }
+
+
+# =============================================================================
+# Course Session Routes  (multi-image capture flow)
+# =============================================================================
+
+async def _get_owned_session(session_id: str, current_user: str) -> dict:
+    session = await mongodb_service.get_session(session_id)
+    if not session or session["user_id"] != current_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return session
+
+
+@router.post("/sessions", response_model=CourseSession, status_code=status.HTTP_201_CREATED)
+async def create_session(
+    body: CourseSessionCreate,
+    current_user: str = Depends(get_current_user),
+) -> CourseSession:
+    """Create a new course session."""
+    session_data = {
+        "user_id": current_user,
+        "title": body.title,
+        "subject": body.subject.value if body.subject else None,
+        "date": body.date or datetime.now(),
+        "status": SessionStatus.DRAFT.value,
+        "capture_ids": [],
+        "final_note_id": None,
+    }
+    session_id = await mongodb_service.create_session(session_data)
+    session = await mongodb_service.get_session(session_id)
+    return CourseSession(**session)
+
+
+@router.get("/sessions", response_model=list[CourseSession])
+async def list_sessions(
+    current_user: str = Depends(get_current_user),
+) -> list[CourseSession]:
+    """List all sessions for the current user."""
+    sessions = await mongodb_service.get_user_sessions(current_user)
+    return [CourseSession(**s) for s in sessions]
+
+
+@router.get("/sessions/{session_id}", response_model=CourseSession)
+async def get_session(
+    session_id: str,
+    current_user: str = Depends(get_current_user),
+) -> CourseSession:
+    """Get a session by ID."""
+    session = await _get_owned_session(session_id, current_user)
+    return CourseSession(**session)
+
+
+@router.post("/sessions/{session_id}/captures/ocr", response_model=Capture)
+@limiter.limit("20/minute")
+async def add_capture(
+    request: Request,
+    session_id: str,
+    file: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+) -> Capture:
+    """Upload a photo to an open session: run OCR and store the capture."""
+    session = await _get_owned_session(session_id, current_user)
+    if session["status"] == SessionStatus.COMPLETED.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Session already finalized")
+
+    contents = await file.read()
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(413, "File too large")
+    ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in ALLOWED_MIME:
+        raise HTTPException(400, f"Unsupported file type: {file.content_type}")
+
+    from app.services.image_processor import image_processor
+    from app.services.ocr_service import ocr_service as _ocr
+
+    processed, _ = await image_processor.preprocess(
+        contents, perspective_correction=True, enhance_contrast=True, denoise=True,
+    )
+    ocr_result = await _ocr.extract_text(processed, detect_formulas=True)
+
+    image_url = await mongodb_service.upload_image(
+        current_user, session_id, contents, file.filename or "capture.png"
+    )
+
+    order = len(session.get("capture_ids", []))
+    capture_data = {
+        "session_id": session_id,
+        "user_id": current_user,
+        "order": order,
+        "image_url": image_url,
+        "raw_text": ocr_result.get("text", ""),
+        "corrected_text": ocr_result.get("text", ""),
+        "confidence": ocr_result.get("average_confidence", 0.0),
+        "formulas": ocr_result.get("formulas", []),
+    }
+    capture_id = await mongodb_service.create_capture(capture_data)
+
+    # Append capture_id to session
+    new_ids = session.get("capture_ids", []) + [capture_id]
+    await mongodb_service.update_session(session_id, {
+        "capture_ids": new_ids,
+        "status": SessionStatus.PROCESSING.value,
+    })
+
+    capture = await mongodb_service.get_capture(capture_id)
+    return Capture(**capture)
+
+
+@router.patch("/sessions/{session_id}/captures/{capture_id}", response_model=Capture)
+async def update_capture_text(
+    session_id: str,
+    capture_id: str,
+    body: CaptureUpdate,
+    current_user: str = Depends(get_current_user),
+) -> Capture:
+    """Update the corrected text of a capture (user manual correction)."""
+    await _get_owned_session(session_id, current_user)
+    capture = await mongodb_service.get_capture(capture_id)
+    if not capture or capture["session_id"] != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+
+    await mongodb_service.update_capture(capture_id, {"corrected_text": body.corrected_text})
+    updated = await mongodb_service.get_capture(capture_id)
+    return Capture(**updated)
+
+
+@router.post("/sessions/{session_id}/finalize")
+async def finalize_session(
+    session_id: str,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Merge all captures in the session into a single note."""
+    session = await _get_owned_session(session_id, current_user)
+    if session["status"] == SessionStatus.COMPLETED.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Session already finalized")
+
+    captures = await mongodb_service.get_session_captures(session_id)
+    if not captures:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No captures in session")
+
+    subject = session.get("subject")
+    structured = await llm_service.merge_captures_to_course(captures, subject)
+
+    merged_text = "\n\n".join(
+        (c.get("corrected_text") or c.get("raw_text") or "") for c in captures
+    ).strip()
+
+    summary_data = await llm_service.generate_summary(merged_text, summary_type="detailed")
+
+    note_data: dict[str, Any] = {
+        "user_id": current_user,
+        "session_id": session_id,
+        "title": session["title"] or structured.get("title", "Untitled"),
+        "subject": structured.get("subject_category") or subject or "other",
+        "tags": [],
+        "processed_content": structured,
+        "raw_text": merged_text,
+        "summary": (summary_data or {}).get("summary", ""),
+        "latex_formulas": structured.get("formulas", []),
+        "cognitive_level": "intermediate",
+        "processing_metadata": {"source": "course_session", "capture_count": len(captures)},
+    }
+    note_id = await mongodb_service.create_note(note_data)
+
+    # Generate quiz (QCM only)
+    quiz_id = None
+    try:
+        quiz_data = await llm_service.generate_quiz(merged_text, quiz_types=["qcm"])
+        if quiz_data.get("questions"):
+            quiz_data["note_id"] = note_id
+            quiz_data["user_id"] = current_user
+            quiz_id = await mongodb_service.create_quiz(quiz_data)
+            await mongodb_service.update_note(note_id, {"quizzes": [quiz_id]})
+    except Exception as e:
+        logger.warning(f"Quiz generation failed during finalize: {e}")
+
+    # Generate flashcards
+    flashcard_ids: list[str] = []
+    try:
+        flashcards = await llm_service.generate_flashcards(merged_text)
+        if flashcards:
+            flashcard_ids = await mongodb_service.create_flashcards(note_id, flashcards, current_user)
+            await mongodb_service.update_note(note_id, {"flashcards": flashcard_ids})
+    except Exception as e:
+        logger.warning(f"Flashcard generation failed during finalize: {e}")
+
+    try:
+        await rag_service.index_note(
+            user_id=current_user, note_id=note_id, text=merged_text,
+            metadata={"subject": note_data["subject"], "title": note_data["title"]},
+        )
+    except Exception as e:
+        logger.warning(f"RAG indexing failed during finalize: {e}")
+
+    await mongodb_service.update_session(session_id, {
+        "status": SessionStatus.COMPLETED.value,
+        "final_note_id": note_id,
+    })
+
+    progress = await mongodb_service.get_or_create_progress(current_user)
+    await mongodb_service.update_progress(current_user, {
+        "total_notes": progress.get("total_notes", 0) + 1,
+        "last_activity": datetime.now(),
+    })
+
+    return {
+        "note_id": note_id,
+        "quiz_id": quiz_id,
+        "flashcards_count": len(flashcard_ids),
+        "capture_count": len(captures),
+        "title": note_data["title"],
     }
 
 
