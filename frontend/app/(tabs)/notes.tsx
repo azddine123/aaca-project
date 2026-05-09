@@ -20,7 +20,7 @@ function formatDate(dateStr: string | undefined): string {
     catch { return ''; }
 }
 
-function subjectIcon(subject: string): any {
+function subjectIcon(subject: string): string {
     const map: Record<string, string> = {
         mathematics: 'function-variant', physics: 'atom', chemistry: 'flask-outline',
         biology: 'leaf-outline', cs: 'code-braces', engineering: 'cog-outline',
@@ -52,7 +52,7 @@ export default function NotesScreen() {
     const clearSearch = () => { setQuery(''); fetchNotes(); };
 
     const filteredNotes = activeFilter === 'all' ? notes : notes.filter((n: Note) => n.subject === activeFilter);
-    const subjectsWithNotes = useMemo(() => 
+    const subjectsWithNotes = useMemo(() =>
         ['all', ...Array.from(new Set(notes.map((n: Note) => n.subject).filter(Boolean)))],
         [notes]
     );
@@ -61,8 +61,17 @@ export default function NotesScreen() {
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Mes Notes</Text>
-                <Text style={styles.headerCount}>{notes.length} note{notes.length !== 1 ? 's' : ''}</Text>
+                <View>
+                    <Text style={styles.headerTitle}>Mes Notes</Text>
+                    <Text style={styles.headerCount}>{notes.length} note{notes.length !== 1 ? 's' : ''}</Text>
+                </View>
+                <TouchableOpacity
+                    style={styles.headerAction}
+                    onPress={() => router.push('/capture')}
+                    activeOpacity={0.85}
+                >
+                    <MaterialCommunityIcons name="plus" size={20} color="#fff" />
+                </TouchableOpacity>
             </View>
 
             {/* Search bar */}
@@ -116,17 +125,30 @@ export default function NotesScreen() {
                 contentContainerStyle={[styles.list, filteredNotes.length === 0 && styles.listEmpty]}
                 ListEmptyComponent={
                     <View style={styles.empty}>
-                        <MaterialCommunityIcons name="notebook-plus-outline" size={56} color={C.textMuted} />
+                        <View style={[styles.emptyIconWrap, { backgroundColor: C.primary + '18' }]}>
+                            <MaterialCommunityIcons name="notebook-plus-outline" size={32} color={C.primary} />
+                        </View>
                         <Text style={styles.emptyTitle}>{query.length > 0 ? 'Aucun résultat' : 'Aucune note'}</Text>
                         <Text style={styles.emptySub}>
                             {query.length > 0
                                 ? `Aucune note ne correspond à "${query}"`
                                 : 'Capturez votre première note depuis le bouton central.'}
                         </Text>
+                        {query.length === 0 && (
+                            <TouchableOpacity
+                                style={[styles.emptyBtn, { backgroundColor: C.primary }]}
+                                onPress={() => router.push('/capture')}
+                                activeOpacity={0.85}
+                            >
+                                <MaterialCommunityIcons name="camera-plus-outline" size={16} color="#fff" />
+                                <Text style={styles.emptyBtnText}>Capturer une note</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 }
                 renderItem={({ item }: { item: Note }) => {
                     const color = SUBJECT_COLORS[item.subject] || C.primary;
+                    const icon = subjectIcon(item.subject);
                     return (
                         <TouchableOpacity
                             style={styles.card}
@@ -134,14 +156,19 @@ export default function NotesScreen() {
                             activeOpacity={0.8}
                         >
                             <View style={[styles.cardAccent, { backgroundColor: color }]} />
-                            <View style={[styles.cardIcon, { backgroundColor: color + '25' }]}>
-                                <MaterialCommunityIcons name={subjectIcon(item.subject)} size={20} color={color} />
+                            <View style={[styles.cardIcon, { backgroundColor: color + '20' }]}>
+                                <MaterialCommunityIcons name={icon as any} size={20} color={color} />
                             </View>
                             <View style={styles.cardContent}>
                                 <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-                                <Text style={styles.cardPreview} numberOfLines={2}>{item.preview || item.raw_text || ''}</Text>
+                                {(item.preview || item.raw_text) ? (
+                                    <Text style={styles.cardPreview} numberOfLines={2}>{item.preview || item.raw_text}</Text>
+                                ) : null}
                                 <View style={styles.cardFooter}>
-                                    <Text style={[styles.cardSubject, { color }]}>{SUBJECT_LABELS[item.subject] || item.subject || 'Autre'}</Text>
+                                    <View style={[styles.subjectPill, { backgroundColor: color + '18' }]}>
+                                        <View style={[styles.subjectDot, { backgroundColor: color }]} />
+                                        <Text style={[styles.cardSubject, { color }]}>{SUBJECT_LABELS[item.subject] || 'Autre'}</Text>
+                                    </View>
                                     <Text style={styles.cardDot}>·</Text>
                                     <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
                                 </View>
@@ -157,9 +184,17 @@ export default function NotesScreen() {
 
 const makeStyles = (C: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
-    header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md },
-    headerTitle: { fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary },
-    headerCount: { fontSize: SIZES.fontXs, color: C.textMuted, paddingBottom: 4 },
+
+    header: {
+        flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
+        paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md,
+    },
+    headerTitle: { fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.5 },
+    headerCount: { fontSize: SIZES.fontXs, color: C.textMuted, marginTop: 2 },
+    headerAction: {
+        width: 38, height: 38, borderRadius: 19, backgroundColor: C.primary,
+        justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary,
+    },
 
     searchContainer: {
         flexDirection: 'row', alignItems: 'center', gap: SIZES.sm,
@@ -172,25 +207,41 @@ const makeStyles = (C: any) => StyleSheet.create({
 
     filtersScroll: { flexGrow: 0 },
     filtersRow: { paddingHorizontal: SIZES.xl, gap: SIZES.xs, paddingBottom: SIZES.sm },
-    chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: SIZES.md, paddingVertical: 6, borderRadius: SIZES.borderRadiusFull, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+    chip: {
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        paddingHorizontal: SIZES.md, paddingVertical: 7,
+        borderRadius: SIZES.borderRadiusFull,
+        backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    },
     chipDot: { width: 6, height: 6, borderRadius: 3 },
     chipText: { fontSize: SIZES.fontXs, fontWeight: '600', color: C.textSecondary },
 
     list: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxxl },
     listEmpty: { flex: 1 },
 
-    card: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: SIZES.borderRadius, marginBottom: SIZES.sm, overflow: 'hidden', borderWidth: 1, borderColor: C.border, ...SHADOWS.sm },
-    cardAccent: { width: 3, alignSelf: 'stretch' },
-    cardIcon: { width: 42, height: 42, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginLeft: SIZES.sm },
-    cardContent: { flex: 1, paddingVertical: SIZES.md, paddingLeft: SIZES.sm, paddingRight: 4, gap: 3 },
-    cardTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: C.textPrimary },
+    card: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: C.surface, borderRadius: SIZES.borderRadius,
+        marginBottom: SIZES.sm, overflow: 'hidden',
+        borderWidth: 1, borderColor: C.border,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    },
+    cardAccent:  { width: 3, alignSelf: 'stretch' },
+    cardIcon:    { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginLeft: SIZES.sm },
+    cardContent: { flex: 1, paddingVertical: SIZES.md, paddingLeft: SIZES.sm, paddingRight: 4, gap: 4 },
+    cardTitle:   { fontSize: SIZES.fontMd, fontWeight: '700', color: C.textPrimary },
     cardPreview: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 17 },
-    cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+    cardFooter:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    subjectPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
+    subjectDot:  { width: 4, height: 4, borderRadius: 2 },
     cardSubject: { fontSize: SIZES.fontXs, fontWeight: '700' },
-    cardDot: { fontSize: SIZES.fontXs, color: C.textMuted },
-    cardDate: { fontSize: SIZES.fontXs, color: C.textMuted },
+    cardDot:     { fontSize: SIZES.fontXs, color: C.textMuted },
+    cardDate:    { fontSize: SIZES.fontXs, color: C.textMuted },
 
-    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, paddingTop: SIZES.xxxl },
-    emptyTitle: { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textSecondary },
-    emptySub: { fontSize: SIZES.fontSm, color: C.textMuted, textAlign: 'center', paddingHorizontal: SIZES.xl },
+    empty:        { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, paddingTop: SIZES.xxxl },
+    emptyIconWrap:{ width: 64, height: 64, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.xs },
+    emptyTitle:   { fontSize: SIZES.fontLg, fontWeight: '600', color: C.textSecondary },
+    emptySub:     { fontSize: SIZES.fontSm, color: C.textMuted, textAlign: 'center', paddingHorizontal: SIZES.xl },
+    emptyBtn:     { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.xl, paddingVertical: SIZES.sm + 2, borderRadius: SIZES.borderRadiusFull, marginTop: SIZES.sm },
+    emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: SIZES.fontSm },
 });

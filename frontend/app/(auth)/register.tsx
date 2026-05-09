@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity,
     StyleSheet, KeyboardAvoidingView, Platform,
@@ -8,20 +8,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { API_URL } from '@/config/api';
-import { COLORS, SIZES, FONTS, SHADOWS, GRADIENTS } from '@/theme';
+import { SIZES, FONTS, SHADOWS } from '@/theme';
 
 type Strength = { level: 0 | 1 | 2 | 3; label: string; color: string };
 
-function getStrength(pwd: string): Strength {
-    if (!pwd) return { level: 0, label: '', color: COLORS.border };
-    if (pwd.length < 6) return { level: 1, label: 'Trop court', color: COLORS.error };
-    if (pwd.length < 10 || !/[0-9]/.test(pwd)) return { level: 2, label: 'Moyen', color: COLORS.warning };
-    return { level: 3, label: 'Fort', color: COLORS.success };
+function getStrength(pwd: string, C: any): Strength {
+    if (!pwd) return { level: 0, label: '', color: C.border };
+    if (pwd.length < 6) return { level: 1, label: 'Trop court', color: C.error };
+    if (pwd.length < 10 || !/[0-9]/.test(pwd)) return { level: 2, label: 'Moyen', color: C.warning };
+    return { level: 3, label: 'Fort', color: C.success };
 }
 
 export default function RegisterScreen() {
     const { login } = useAuth();
+    const C = useAppColors();
+    const G = useAppGradients();
+    const styles = useMemo(() => makeStyles(C), [C]);
+
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -32,7 +37,7 @@ export default function RegisterScreen() {
     const [emailFocused, setEmailFocused] = useState(false);
     const [pwFocused, setPwFocused] = useState(false);
 
-    const strength = getStrength(password);
+    const strength = getStrength(password, C);
 
     const handleRegister = async () => {
         setError('');
@@ -72,124 +77,127 @@ export default function RegisterScreen() {
             style={styles.root}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-            <LinearGradient colors={['#0A0E1F', '#07091A']} style={StyleSheet.absoluteFill} />
+            <LinearGradient colors={G.hero} style={StyleSheet.absoluteFill} />
 
             <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                {/* Header row */}
+                {/* Back button */}
                 <View style={styles.topRow}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-                        <MaterialCommunityIcons name="arrow-left" size={20} color={COLORS.textSecondary} />
+                        <MaterialCommunityIcons name="arrow-left" size={20} color={C.textSecondary} />
                     </TouchableOpacity>
                 </View>
 
-                {/* Logo small */}
+                {/* Logo */}
                 <View style={styles.logoRow}>
-                    <LinearGradient colors={GRADIENTS.primary} style={styles.logoSmall}>
-                        <Text style={styles.logoLetter}>A</Text>
-                    </LinearGradient>
+                    <View style={styles.logoSmallWrap}>
+                        <LinearGradient colors={G.primary} style={styles.logoSmall}>
+                            <Text style={styles.logoLetter}>A</Text>
+                        </LinearGradient>
+                    </View>
                     <Text style={styles.appName}>AACA</Text>
                 </View>
 
                 <Text style={styles.title}>Créer un compte</Text>
-                <Text style={[FONTS.body2, { marginBottom: SIZES.xl }]}>
-                    Rejoignez des milliers d'étudiants qui étudient mieux.
-                </Text>
+                <Text style={styles.subtitle}>Rejoignez des milliers d'étudiants qui étudient mieux.</Text>
 
-                {error ? (
-                    <View style={styles.errorBox}>
-                        <MaterialCommunityIcons name="alert-circle-outline" size={16} color={COLORS.error} />
-                        <Text style={styles.errorText}>{error}</Text>
-                    </View>
-                ) : null}
-
-                {/* Full name */}
-                <View style={styles.fieldGroup}>
-                    <Text style={styles.fieldLabel}>Nom complet</Text>
-                    <View style={[styles.inputWrapper, nameFocused && styles.inputFocused]}>
-                        <MaterialCommunityIcons name="account-outline" size={18} color={nameFocused ? COLORS.primary : COLORS.textMuted} />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Prénom Nom"
-                            placeholderTextColor={COLORS.textPlaceholder}
-                            value={fullName}
-                            onChangeText={t => { setFullName(t); setError(''); }}
-                            onFocus={() => setNameFocused(true)}
-                            onBlur={() => setNameFocused(false)}
-                        />
-                    </View>
-                </View>
-
-                {/* Email */}
-                <View style={styles.fieldGroup}>
-                    <Text style={styles.fieldLabel}>Email</Text>
-                    <View style={[styles.inputWrapper, emailFocused && styles.inputFocused]}>
-                        <MaterialCommunityIcons name="email-outline" size={18} color={emailFocused ? COLORS.primary : COLORS.textMuted} />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="votre@email.com"
-                            placeholderTextColor={COLORS.textPlaceholder}
-                            value={email}
-                            onChangeText={t => { setEmail(t); setError(''); }}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            onFocus={() => setEmailFocused(true)}
-                            onBlur={() => setEmailFocused(false)}
-                        />
-                    </View>
-                </View>
-
-                {/* Password */}
-                <View style={styles.fieldGroup}>
-                    <Text style={styles.fieldLabel}>Mot de passe</Text>
-                    <View style={[styles.inputWrapper, pwFocused && styles.inputFocused]}>
-                        <MaterialCommunityIcons name="lock-outline" size={18} color={pwFocused ? COLORS.primary : COLORS.textMuted} />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="8 caractères minimum"
-                            placeholderTextColor={COLORS.textPlaceholder}
-                            value={password}
-                            onChangeText={t => { setPassword(t); setError(''); }}
-                            secureTextEntry={!showPassword}
-                            onFocus={() => setPwFocused(true)}
-                            onBlur={() => setPwFocused(false)}
-                        />
-                        <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <MaterialCommunityIcons
-                                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                                size={18}
-                                color={COLORS.textMuted}
-                            />
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Strength indicator */}
-                    {password.length > 0 && (
-                        <View style={styles.strengthRow}>
-                            {[1, 2, 3].map(i => (
-                                <View
-                                    key={i}
-                                    style={[styles.strengthSeg, { backgroundColor: i <= strength.level ? strength.color : COLORS.surfaceHigh }]}
-                                />
-                            ))}
-                            <Text style={[styles.strengthLabel, { color: strength.color }]}>{strength.label}</Text>
+                {/* Form card */}
+                <View style={styles.card}>
+                    {error ? (
+                        <View style={styles.errorBox}>
+                            <MaterialCommunityIcons name="alert-circle-outline" size={16} color={C.error} />
+                            <Text style={styles.errorText}>{error}</Text>
                         </View>
-                    )}
-                </View>
+                    ) : null}
 
-                {/* Submit */}
-                <TouchableOpacity
-                    style={[styles.submitBtn, loading && styles.submitDisabled]}
-                    onPress={handleRegister}
-                    disabled={loading}
-                    activeOpacity={0.85}
-                >
-                    <LinearGradient colors={GRADIENTS.primary} style={styles.submitGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-                        {loading
-                            ? <ActivityIndicator color={COLORS.white} />
-                            : <Text style={styles.submitText}>Créer mon compte</Text>
-                        }
-                    </LinearGradient>
-                </TouchableOpacity>
+                    {/* Full name */}
+                    <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Nom complet</Text>
+                        <View style={[styles.inputWrapper, nameFocused && styles.inputFocused]}>
+                            <MaterialCommunityIcons name="account-outline" size={18} color={nameFocused ? C.primary : C.textMuted} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Prénom Nom"
+                                placeholderTextColor={C.textMuted}
+                                value={fullName}
+                                onChangeText={t => { setFullName(t); setError(''); }}
+                                onFocus={() => setNameFocused(true)}
+                                onBlur={() => setNameFocused(false)}
+                            />
+                        </View>
+                    </View>
+
+                    {/* Email */}
+                    <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Email</Text>
+                        <View style={[styles.inputWrapper, emailFocused && styles.inputFocused]}>
+                            <MaterialCommunityIcons name="email-outline" size={18} color={emailFocused ? C.primary : C.textMuted} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="votre@email.com"
+                                placeholderTextColor={C.textMuted}
+                                value={email}
+                                onChangeText={t => { setEmail(t); setError(''); }}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                onFocus={() => setEmailFocused(true)}
+                                onBlur={() => setEmailFocused(false)}
+                            />
+                        </View>
+                    </View>
+
+                    {/* Password */}
+                    <View style={styles.fieldGroup}>
+                        <Text style={styles.fieldLabel}>Mot de passe</Text>
+                        <View style={[styles.inputWrapper, pwFocused && styles.inputFocused]}>
+                            <MaterialCommunityIcons name="lock-outline" size={18} color={pwFocused ? C.primary : C.textMuted} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="8 caractères minimum"
+                                placeholderTextColor={C.textMuted}
+                                value={password}
+                                onChangeText={t => { setPassword(t); setError(''); }}
+                                secureTextEntry={!showPassword}
+                                onFocus={() => setPwFocused(true)}
+                                onBlur={() => setPwFocused(false)}
+                            />
+                            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <MaterialCommunityIcons
+                                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                                    size={18}
+                                    color={C.textMuted}
+                                />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Strength indicator */}
+                        {password.length > 0 && (
+                            <View style={styles.strengthRow}>
+                                {[1, 2, 3].map(i => (
+                                    <View
+                                        key={i}
+                                        style={[styles.strengthSeg, { backgroundColor: i <= strength.level ? strength.color : C.surfaceHigh }]}
+                                    />
+                                ))}
+                                <Text style={[styles.strengthLabel, { color: strength.color }]}>{strength.label}</Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Submit */}
+                    <TouchableOpacity
+                        style={[styles.submitBtn, loading && styles.submitDisabled]}
+                        onPress={handleRegister}
+                        disabled={loading}
+                        activeOpacity={0.85}
+                    >
+                        <LinearGradient colors={G.primary} style={styles.submitGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                            {loading
+                                ? <ActivityIndicator color="#fff" />
+                                : <Text style={styles.submitText}>Créer mon compte</Text>
+                            }
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
 
                 <TouchableOpacity onPress={() => router.back()} style={styles.linkRow}>
                     <Text style={styles.linkText}>Déjà un compte ? </Text>
@@ -200,40 +208,44 @@ export default function RegisterScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    root: { flex: 1, backgroundColor: COLORS.background },
-    scroll: { flexGrow: 1, padding: SIZES.xl, justifyContent: 'center', paddingTop: SIZES.xxxl },
+const makeStyles = (C: any) => StyleSheet.create({
+    root:   { flex: 1, backgroundColor: C.background },
+    scroll: { flexGrow: 1, padding: SIZES.xl, paddingTop: SIZES.xxxl },
 
-    topRow: { marginBottom: SIZES.xl },
-    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+    topRow: { marginBottom: SIZES.lg },
+    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
 
-    logoRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginBottom: SIZES.xl },
+    logoRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginBottom: SIZES.lg },
+    logoSmallWrap: { ...SHADOWS.primary },
     logoSmall: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-    logoLetter: { fontSize: 20, fontWeight: '900', color: COLORS.white },
-    appName: { fontSize: SIZES.fontXl, fontWeight: '900', color: COLORS.textPrimary, letterSpacing: 4 },
+    logoLetter: { fontSize: 20, fontWeight: '900', color: '#fff' },
+    appName: { fontSize: SIZES.fontXl, fontWeight: '900', color: C.textPrimary, letterSpacing: 4 },
 
-    title: { ...FONTS.h2, marginBottom: SIZES.xs },
+    title:    { ...FONTS.h2, color: C.textPrimary, marginBottom: SIZES.xs },
+    subtitle: { ...FONTS.body2, color: C.textSecondary, marginBottom: SIZES.xl },
 
-    errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.xs, backgroundColor: COLORS.error + '18', borderRadius: SIZES.borderRadiusSm, padding: SIZES.sm, borderWidth: 1, borderColor: COLORS.error + '40', marginBottom: SIZES.sm },
-    errorText: { flex: 1, color: COLORS.error, fontSize: SIZES.fontSm, lineHeight: 18 },
+    card: { backgroundColor: C.surface, borderRadius: SIZES.borderRadiusXl, padding: SIZES.xl, gap: SIZES.md, borderWidth: 1, borderColor: C.border, ...SHADOWS.sm },
 
-    fieldGroup: { gap: 6, marginBottom: SIZES.sm },
-    fieldLabel: { ...FONTS.label, paddingLeft: 2 },
+    errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.xs, backgroundColor: C.error + '18', borderRadius: SIZES.borderRadiusSm, padding: SIZES.sm, borderWidth: 1, borderColor: C.error + '40' },
+    errorText: { flex: 1, color: C.error, fontSize: SIZES.fontSm, lineHeight: 18 },
 
-    inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, backgroundColor: COLORS.surface, borderRadius: SIZES.borderRadius, paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.border, height: 52 },
-    inputFocused: { borderColor: COLORS.borderActive },
-    input: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontMd },
+    fieldGroup: { gap: 6 },
+    fieldLabel: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8, paddingLeft: 2 },
+
+    inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, backgroundColor: C.surfaceMid, borderRadius: SIZES.borderRadius, paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: C.border, height: 52 },
+    inputFocused: { borderColor: C.borderActive },
+    input: { flex: 1, color: C.textPrimary, fontSize: SIZES.fontMd },
 
     strengthRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
     strengthSeg: { flex: 1, height: 3, borderRadius: 2 },
     strengthLabel: { fontSize: SIZES.fontXs, fontWeight: '700', minWidth: 60 },
 
-    submitBtn: { borderRadius: SIZES.borderRadius, overflow: 'hidden', marginTop: SIZES.md, ...SHADOWS.primary },
+    submitBtn: { borderRadius: SIZES.borderRadius, overflow: 'hidden', marginTop: SIZES.xs, ...SHADOWS.primary },
     submitDisabled: { opacity: 0.6 },
     submitGrad: { height: 52, justifyContent: 'center', alignItems: 'center' },
-    submitText: { color: COLORS.white, fontSize: SIZES.fontMd, fontWeight: '700' },
+    submitText: { color: '#fff', fontSize: SIZES.fontMd, fontWeight: '700' },
 
-    linkRow: { flexDirection: 'row', justifyContent: 'center', marginTop: SIZES.lg },
-    linkText: { ...FONTS.body2 },
-    linkHighlight: { fontSize: SIZES.fontSm, color: COLORS.primary, fontWeight: '700' },
+    linkRow: { flexDirection: 'row', justifyContent: 'center', marginTop: SIZES.xl },
+    linkText: { ...FONTS.body2, color: C.textSecondary },
+    linkHighlight: { fontSize: SIZES.fontSm, color: C.primary, fontWeight: '700' },
 });
