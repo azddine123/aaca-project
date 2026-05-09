@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, View, StyleSheet, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs, router, Redirect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,10 +8,27 @@ import { useAppColors } from '@/contexts/AppearanceContext';
 
 function CaptureTabButton() {
     const C = useAppColors();
+    const openCaptureMenu = () => {
+        Alert.alert(
+            'Nouvelle note',
+            'Choisissez le mode de capture',
+            [
+                {
+                    text: 'Séance multi-photos',
+                    onPress: () => router.push('/session-new'),
+                },
+                {
+                    text: 'Capture rapide',
+                    onPress: () => router.push('/capture'),
+                },
+                { text: 'Annuler', style: 'cancel' },
+            ],
+        );
+    };
     return (
         <TouchableOpacity
             style={styles.fab}
-            onPress={() => router.push('/capture')}
+            onPress={openCaptureMenu}
             activeOpacity={0.85}
         >
             <View style={styles.fabInner}>
