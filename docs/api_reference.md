@@ -558,6 +558,135 @@ Authorization: Bearer <token>
 
 ---
 
+## Course Session Endpoints
+
+Multi-image capture sessions that merge multiple photos into a single consolidated note.
+
+### Create Session
+
+```http
+POST /sessions
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "title": "Cours d'Algèbre — Chapitre 3",
+  "subject": "mathematics"
+}
+```
+
+**Response (201 Created)**:
+
+```json
+{
+  "id": "sess_abc123",
+  "title": "Cours d'Algèbre — Chapitre 3",
+  "subject": "mathematics",
+  "status": "active",
+  "captures": [],
+  "final_note_id": null,
+  "created_at": "2024-01-15T10:00:00Z"
+}
+```
+
+---
+
+### List Sessions
+
+```http
+GET /sessions
+Authorization: Bearer <token>
+```
+
+**Response (200 OK)**:
+
+```json
+[
+  {
+    "id": "sess_abc123",
+    "title": "Cours d'Algèbre",
+    "status": "active",
+    "captures": [...],
+    "final_note_id": null
+  }
+]
+```
+
+---
+
+### Get Session
+
+```http
+GET /sessions/{session_id}
+Authorization: Bearer <token>
+```
+
+---
+
+### OCR a Capture (add photo to session)
+
+Upload an image to a session. Returns extracted text immediately; the image is stored and queued for merge on finalization.
+
+```http
+POST /sessions/{session_id}/captures/ocr
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+file: <image binary>
+```
+
+**Response (200 OK)**:
+
+```json
+{
+  "capture_id": "cap_xyz789",
+  "session_id": "sess_abc123",
+  "raw_text": "Le théorème de Pythagore stipule...",
+  "image_url": "/images/cap_xyz789",
+  "order": 1
+}
+```
+
+---
+
+### Update Capture Order / Metadata
+
+```http
+PATCH /sessions/{session_id}/captures/{capture_id}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "order": 2
+}
+```
+
+---
+
+### Finalize Session → Note
+
+Merge all captures into a single note, run the full AI pipeline (structure, summary, quiz, flashcards), and mark the session as `completed`.
+
+```http
+POST /sessions/{session_id}/finalize
+Authorization: Bearer <token>
+```
+
+**Response (200 OK)**:
+
+```json
+{
+  "note_id": "note_def456",
+  "session_id": "sess_abc123",
+  "title": "Cours d'Algèbre — Chapitre 3",
+  "summary": "...",
+  "quizzes": ["quiz_001"],
+  "flashcards": ["card_001", "card_002"]
+}
+```
+
+---
+
 ## Utility Endpoints
 
 ### Get Subjects
