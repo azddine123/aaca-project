@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-    View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Image,
+    View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Image, Modal,
     type StyleProp, type TextStyle, type TouchableOpacityProps, type ViewStyle,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -389,4 +389,103 @@ const eb = StyleSheet.create({
     wrap:  { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, borderRadius: SIZES.borderRadiusSm, borderWidth: 1, padding: SIZES.sm },
     msg:   { flex: 1, fontSize: SIZES.fontXs, lineHeight: 18 },
     retry: { fontWeight: '700', fontSize: SIZES.fontXs },
+});
+
+// ── CaptureMenuModal ──────────────────────────────────────────────────
+interface CaptureMenuModalProps {
+    visible: boolean;
+    onClose: () => void;
+    onSelectSession: () => void;
+    onSelectCapture: () => void;
+}
+export function CaptureMenuModal({ visible, onClose, onSelectSession, onSelectCapture }: CaptureMenuModalProps) {
+    const C = useAppColors();
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <TouchableOpacity style={cm.overlay} activeOpacity={1} onPress={onClose} />
+            <View style={[cm.sheet, { backgroundColor: C.surfaceMid, borderColor: C.borderMid }]}>
+                <View style={[cm.handle, { backgroundColor: C.border }]} />
+                <Text style={[cm.title, { color: C.textPrimary }]}>Ajouter un cours</Text>
+                <Text style={[cm.subtitle, { color: C.textSecondary }]}>Comment souhaitez-vous numériser ce cours ?</Text>
+
+                <TouchableOpacity
+                    style={[cm.option, { borderColor: C.border, backgroundColor: C.surface }]}
+                    onPress={() => { onClose(); onSelectCapture(); }}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scanner une page"
+                >
+                    <View style={[cm.optionIcon, { backgroundColor: C.accent + '14' }]}>
+                        <MaterialCommunityIcons name="camera-outline" size={24} color={C.accent} />
+                    </View>
+                    <View style={cm.optionBody}>
+                        <Text style={[cm.optionLabel, { color: C.textPrimary }]}>Scanner une page</Text>
+                        <Text style={[cm.optionDesc, { color: C.textSecondary }]}>Une page de cours → résumé, flashcards et quiz générés</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[cm.option, { borderColor: C.border, backgroundColor: C.surface }]}
+                    onPress={() => { onClose(); onSelectSession(); }}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scanner plusieurs pages"
+                >
+                    <View style={[cm.optionIcon, { backgroundColor: C.primary + '14' }]}>
+                        <MaterialCommunityIcons name="book-plus-multiple-outline" size={24} color={C.primary} />
+                    </View>
+                    <View style={cm.optionBody}>
+                        <Text style={[cm.optionLabel, { color: C.textPrimary }]}>Scanner plusieurs pages</Text>
+                        <Text style={[cm.optionDesc, { color: C.textSecondary }]}>Plusieurs pages fusionnées en une note complète avec exercices</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[cm.cancel, { backgroundColor: C.surfaceHigh }]}
+                    onPress={onClose}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Annuler"
+                >
+                    <Text style={[cm.cancelText, { color: C.textSecondary }]}>Annuler</Text>
+                </TouchableOpacity>
+            </View>
+        </Modal>
+    );
+}
+const cm = StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+    sheet: {
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        borderTopWidth: 1,
+        padding: SIZES.xl,
+        paddingBottom: 40,
+        gap: SIZES.sm,
+    },
+    handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: SIZES.xs },
+    title: { fontSize: SIZES.fontXl, fontWeight: '800' },
+    subtitle: { fontSize: SIZES.fontSm, marginBottom: SIZES.xs },
+    option: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SIZES.md,
+        padding: SIZES.md,
+        borderRadius: SIZES.borderRadiusLg,
+        borderWidth: 1,
+    },
+    optionIcon: { width: 48, height: 48, borderRadius: SIZES.borderRadius, alignItems: 'center', justifyContent: 'center' },
+    optionBody: { flex: 1, minWidth: 0, gap: 3 },
+    optionLabel: { fontSize: SIZES.fontMd, fontWeight: '700' },
+    optionDesc: { fontSize: SIZES.fontXs, lineHeight: 16 },
+    cancel: {
+        height: 46,
+        borderRadius: SIZES.borderRadius,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: SIZES.xs,
+    },
+    cancelText: { fontSize: SIZES.fontSm, fontWeight: '700' },
 });

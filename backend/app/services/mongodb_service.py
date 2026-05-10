@@ -37,20 +37,45 @@ class MongoDBService:
         self.client: AsyncIOMotorClient | None = None
         self.db = None
         self.gridfs: AsyncIOMotorGridFSBucket | None = None
+        self._connected: bool = False
         self._connect()
 
     def _connect(self) -> None:
-        """Connect to MongoDB."""
+        """Initialise Motor client objects (lazy — no network call yet)."""
         try:
             self.client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
             self.db = self.client[settings.DATABASE_NAME]
             self.gridfs = AsyncIOMotorGridFSBucket(self.db)
-            logger.info("✅ Connexion MongoDB réussie")
         except Exception as e:
-            logger.error(f"❌ Erreur connexion MongoDB: {e}")
-            logger.warning("⚠️ Utilisation du mode 'mock' - données non persistantes")
+            logger.error(f"❌ Erreur initialisation MongoDB: {e}")
             self.client = None
             self.db = None
+
+    async def ping(self) -> bool:
+        """Test actual MongoDB connectivity using a short-timeout client.
+
+        Sets self._connected and returns True if reachable.
+        Called once at startup; safe to call again after a failure.
+        Always returns within ~2 s whether MongoDB is up or down.
+        """
+        import asyncio
+        tmp = None
+        try:
+            tmp = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=1500)
+            await asyncio.wait_for(tmp.admin.command("ping"), timeout=2.0)
+            self._connected = True
+            logger.info("✅ MongoDB ping OK")
+            return True
+        except Exception as e:
+            self._connected = False
+            logger.warning(f"⚠️ MongoDB indisponible: {e}")
+            return False
+        finally:
+            if tmp is not None:
+                try:
+                    tmp.close()
+                except Exception:
+                    pass
 
     async def _create_indexes(self) -> None:
         """Create indexes for query optimization."""
@@ -710,6 +735,31 @@ class MongoDBService:
         )
         return result.modified_count > 0
 
+    async def delete_capture(self, capture_id: str) -> bool:
+        """Delete a capture by ID. Returns True if deleted, False otherwise."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            return False
+
+        try:
+            oid = ObjectId(capture_id)
+        except InvalidId:
+            return False
+
+        result = await collection.delete_one({"_id": oid})
+        return result.deleted_count > 0
+
+    async def reindex_session_captures(self, session_id: str) -> None:
+        """Re-assign sequential order values to remaining captures of a session."""
+        collection = self._get_collection("captures")
+        if collection is None:
+            return
+
+        cursor = collection.find({"session_id": session_id}).sort("order", ASCENDING)
+        captures = await cursor.to_list(length=None)
+        for idx, cap in enumerate(captures):
+            await collection.update_one({"_id": cap["_id"]}, {"$set": {"order": idx}})
+
     # ============== Image Storage (GridFS) ==============
 
     async def upload_image(
@@ -721,28 +771,32 @@ class MongoDBService:
     ) -> str:
         """Store image in GridFS and return a serving URL.
 
-        Falls back to local storage if MongoDB is not connected.
+        Uses GridFS only when actually connected. Falls back to local storage
+        on disconnection or if the GridFS upload fails at runtime.
         """
-        if self.gridfs is not None:
-            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-            content_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp", "gif") else "image/jpeg"
-            file_id = await self.gridfs.upload_from_stream(
-                filename,
-                image_bytes,
-                metadata={"user_id": user_id, "note_id": note_id, "contentType": content_type},
-            )
-            return f"/images/{file_id}"
-
-        # Fallback: local filesystem
         from app.services.local_storage import local_storage
+
+        if self._connected and self.gridfs is not None:
+            try:
+                ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+                content_type = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp", "gif") else "image/jpeg"
+                file_id = await self.gridfs.upload_from_stream(
+                    filename,
+                    image_bytes,
+                    metadata={"user_id": user_id, "note_id": note_id, "contentType": content_type},
+                )
+                return f"/images/{file_id}"
+            except Exception as e:
+                logger.error(f"❌ GridFS upload failed, falling back to local storage: {e}")
+
         return await local_storage.upload_image(user_id, note_id, image_bytes, filename)
 
-    async def get_image(self, file_id: str) -> tuple[bytes, str] | None:
-        """Retrieve image bytes and content_type from GridFS.
+    async def get_image(self, file_id: str) -> tuple[bytes, str, str] | None:
+        """Retrieve image bytes, content_type and owner user_id from GridFS.
 
-        Returns (bytes, content_type) or None if not found.
+        Returns (bytes, content_type, user_id) or None if not found.
         """
-        if self.gridfs is None:
+        if self.gridfs is None or not self._connected:
             return None
         try:
             oid = ObjectId(file_id)
@@ -754,7 +808,8 @@ class MongoDBService:
             data = await stream.read()
             meta = stream.metadata or {}
             content_type = meta.get("contentType", "image/jpeg")
-            return data, content_type
+            owner_id = meta.get("user_id", "")
+            return data, content_type, owner_id
         except NoFile:
             return None
 

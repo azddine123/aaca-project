@@ -1062,6 +1062,37 @@ async def update_capture_text(
     return Capture(**updated)
 
 
+@router.delete("/sessions/{session_id}/captures/{capture_id}", response_model=dict)
+async def delete_capture(
+    session_id: str,
+    capture_id: str,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a capture from a session and re-index remaining captures."""
+    session = await _get_owned_session(session_id, current_user)
+    if session["status"] == SessionStatus.COMPLETED.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot modify a completed session")
+
+    capture = await mongodb_service.get_capture(capture_id)
+    if not capture:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    if capture["session_id"] != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture does not belong to this session")
+
+    deleted = await mongodb_service.delete_capture(capture_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+
+    # Remove capture_id from session.capture_ids
+    new_ids = [cid for cid in session.get("capture_ids", []) if cid != capture_id]
+    await mongodb_service.update_session(session_id, {"capture_ids": new_ids})
+
+    # Re-index remaining captures so order stays contiguous
+    await mongodb_service.reindex_session_captures(session_id)
+
+    return {"deleted": True}
+
+
 @router.post("/sessions/{session_id}/finalize")
 async def finalize_session(
     session_id: str,

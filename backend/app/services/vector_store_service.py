@@ -129,6 +129,10 @@ class VectorStoreService:
         """
         collection = self._get_or_create_collection(user_id)
 
+        count = self._collection_count(collection)
+        if count == 0:
+            return []
+
         where: dict[str, Any] | None = None
         if note_id and subject:
             where = {"$and": [{"note_id": note_id}, {"subject": subject}]}
@@ -139,7 +143,7 @@ class VectorStoreService:
 
         query_kwargs: dict[str, Any] = {
             "query_embeddings": [query_embedding],
-            "n_results": min(top_k, self._collection_count(collection)),
+            "n_results": min(top_k, count),
             "include": ["documents", "metadatas", "distances"],
         }
         if where:

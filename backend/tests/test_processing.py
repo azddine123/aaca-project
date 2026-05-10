@@ -13,7 +13,7 @@ class TestProcessingEndpoints:
     def test_process_image_without_auth(self, client):
         """Test processing without authentication fails"""
         response = client.post("/api/v1/process/image")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_process_image_with_invalid_file_type(self, authorized_client):
         """Test processing with invalid file type fails"""

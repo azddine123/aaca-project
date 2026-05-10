@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, ScrollView,
     TouchableOpacity, ActivityIndicator, Alert,
@@ -7,6 +7,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotes } from '@/contexts/NotesContext';
 import { useStudy } from '@/contexts/StudyContext';
 import NoteContentView from '@/components/NoteContentView';
@@ -22,6 +23,13 @@ import { fr } from 'date-fns/locale';
 type Tab = 'resume' | 'contenu' | 'etudier' | 'assistant';
 interface QAMessage { role: 'user' | 'assistant'; text: string; }
 
+const QA_SUGGESTIONS = [
+    'Résume ce cours',
+    'Explique les concepts clés',
+    'Donne-moi un exemple',
+    'Prépare-moi un quiz',
+];
+
 const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'resume',    label: 'Résumé',    icon: 'text-box-outline' },
     { key: 'contenu',   label: 'Contenu',   icon: 'file-document-outline' },
@@ -36,7 +44,8 @@ export default function NoteDetailScreen() {
     const { auth, authFetch } = useAuth();
     const C = useAppColors();
     const G = useAppGradients();
-    const styles = useMemo(() => makeStyles(C), [C]);
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
 
     const [activeTab, setActiveTab] = useState<Tab>('resume');
     const [loadingQuiz, setLoadingQuiz] = useState(false);
@@ -50,8 +59,7 @@ export default function NoteDetailScreen() {
 
     useEffect(() => { if (id) fetchNote(id); }, [id, fetchNote]);
 
-    const handleAskQuestion = async () => {
-        const q = qaInput.trim();
+    const sendMessage = useCallback(async (q: string) => {
         if (!q || qaLoading || !id) return;
         setQaMessages(prev => [...prev, { role: 'user', text: q }]);
         setQaInput('');
@@ -72,7 +80,9 @@ export default function NoteDetailScreen() {
             setQaLoading(false);
             setTimeout(() => qaScrollRef.current?.scrollToEnd({ animated: true }), 100);
         }
-    };
+    }, [authFetch, id, qaLoading]);
+
+    const handleAskQuestion = () => sendMessage(qaInput.trim());
 
     const handleGenerateQuiz = async () => {
         if (!id || !auth.token) return;
@@ -258,6 +268,27 @@ export default function NoteDetailScreen() {
                     {/* ÉTUDIER */}
                     {activeTab === 'etudier' && (
                         <View style={styles.studyActions}>
+                            <TouchableOpacity
+                                style={[styles.reviserCta, { backgroundColor: C.primary }]}
+                                onPress={handleLoadFlashcards}
+                                activeOpacity={0.85}
+                                disabled={loadingCards}
+                                accessibilityRole="button"
+                                accessibilityLabel="Réviser maintenant avec les flashcards"
+                            >
+                                <LinearGradient
+                                    colors={[C.primary, C.primaryDark]}
+                                    style={StyleSheet.absoluteFillObject}
+                                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                                />
+                                {loadingCards
+                                    ? <ActivityIndicator size="small" color="#fff" />
+                                    : <MaterialCommunityIcons name="cards-outline" size={22} color="#fff" />
+                                }
+                                <Text style={styles.reviserCtaText}>Réviser maintenant</Text>
+                                <MaterialCommunityIcons name="arrow-right" size={18} color="#fff" style={{ marginLeft: 'auto' }} />
+                            </TouchableOpacity>
+
                             <View style={styles.sectionTitleRow}>
                                 <MaterialCommunityIcons name="school-outline" size={14} color={C.primary} />
                                 <Text style={styles.sectionTitle}>Générer des exercices</Text>
@@ -314,6 +345,18 @@ export default function NoteDetailScreen() {
                                     <Text style={[styles.assistantEmptySub, { color: C.textMuted }]}>
                                         {"L'assistant répond en se basant sur le contenu de la note."}
                                     </Text>
+                                    <View style={styles.suggestionChips}>
+                                        {QA_SUGGESTIONS.map(s => (
+                                            <TouchableOpacity
+                                                key={s}
+                                                style={[styles.suggestionChip, { backgroundColor: C.surface, borderColor: C.border }]}
+                                                onPress={() => { setActiveTab('assistant'); sendMessage(s); }}
+                                                activeOpacity={0.75}
+                                            >
+                                                <Text style={[styles.suggestionChipText, { color: C.primary }]}>{s}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
                                 </View>
                             )}
                             {qaMessages.map((msg, i) => (
@@ -372,18 +415,18 @@ export default function NoteDetailScreen() {
     );
 }
 
-const makeStyles = (C: any) => StyleSheet.create({
+const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
     loading:   { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SIZES.sm },
 
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md,
+        paddingHorizontal: SIZES.xl, paddingTop: topInset + SIZES.sm, paddingBottom: SIZES.md,
         overflow: 'hidden',
     },
     headerPattern: { position: 'absolute', right: -26, top: 18, width: 230, height: 120, opacity: 0.08 },
     backBtn: {
-        width: 38, height: 38, borderRadius: 19,
+        width: 44, height: 44, borderRadius: 22,
         backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center',
         borderWidth: 1, borderColor: C.border,
     },
@@ -427,6 +470,17 @@ const makeStyles = (C: any) => StyleSheet.create({
     studyActions: { gap: SIZES.sm },
     studyHint:    { fontSize: SIZES.fontSm, color: C.textSecondary, marginBottom: SIZES.sm },
 
+    reviserCta: {
+        flexDirection: 'row', alignItems: 'center', gap: SIZES.sm,
+        borderRadius: SIZES.borderRadius, padding: SIZES.md,
+        overflow: 'hidden', marginBottom: SIZES.sm,
+    },
+    reviserCtaText: { fontSize: SIZES.fontMd, fontWeight: '800', color: '#fff' },
+
+    suggestionChips: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs, justifyContent: 'center', marginTop: SIZES.sm },
+    suggestionChip: { borderWidth: 1, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.sm, paddingVertical: 7 },
+    suggestionChipText: { fontSize: SIZES.fontXs, fontWeight: '700' },
+
     actionCard: {
         flexDirection: 'row', alignItems: 'center', gap: SIZES.md,
         backgroundColor: C.surface, borderRadius: SIZES.borderRadius,
@@ -452,5 +506,5 @@ const makeStyles = (C: any) => StyleSheet.create({
 
     qaBar: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, borderTopWidth: 1 },
     qaInput: { flex: 1, borderWidth: 1, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, fontSize: SIZES.fontSm },
-    qaSend: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
+    qaSend: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
 });

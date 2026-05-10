@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
 import { useAppearance, useAppColors, type Theme } from '@/contexts/AppearanceContext';
@@ -117,7 +118,7 @@ function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () 
                 </View>
 
                 <TouchableOpacity
-                    style={[modal.saveBtn, loading && { opacity: 0.6 }]}
+                    style={[modal.saveBtn, { backgroundColor: C.primary }, loading && { opacity: 0.6 }]}
                     onPress={save}
                     disabled={loading}
                     activeOpacity={0.85}
@@ -185,7 +186,7 @@ function PasswordModal({ visible, onClose }: { visible: boolean; onClose: () => 
                 ))}
 
                 <TouchableOpacity
-                    style={[modal.saveBtn, loading && { opacity: 0.6 }]}
+                    style={[modal.saveBtn, { backgroundColor: C.primary }, loading && { opacity: 0.6 }]}
                     onPress={save}
                     disabled={loading}
                     activeOpacity={0.85}
@@ -206,6 +207,7 @@ export default function ProfileScreen() {
     const { notes } = useNotes();
     const { theme } = useAppearance();
     const C = useAppColors();
+    const insets = useSafeAreaInsets();
 
     const [showTheme,    setShowTheme]    = useState(false);
     const [showEdit,     setShowEdit]     = useState(false);
@@ -269,19 +271,19 @@ export default function ProfileScreen() {
                 {
                     icon: 'help-circle-outline',
                     label: 'Aide & Support',
-                    onPress: () => Alert.alert('Aide & Support', 'Pour toute question :\n\n📧 support@aaca-app.com\n\nConsultez aussi la documentation dans vos notes de cours.'),
+                    onPress: () => Alert.alert('Aide & Support', 'Pour toute question :\n\n📧 support@piclearn-app.com\n\nConsultez aussi la documentation dans vos notes de cours.'),
                 },
                 {
                     icon: 'information-outline',
                     label: 'À propos',
                     sub: 'v1.0.0',
-                    onPress: () => Alert.alert('AACA — AI Academic Cognitive Assistant', 'Version 1.0.0\n\nTransformez vos cours en ressources pédagogiques interactives grâce à l\'IA.\n\n© 2026 AACA Project'),
+                    onPress: () => Alert.alert('PicLearn', 'Version 1.0.0\n\nTransformez vos cours en ressources pédagogiques interactives grâce à l\'IA.\n\n© 2026 PicLearn'),
                 },
             ],
         },
     ];
 
-    const styles = useMemo(() => makeStyles(C), [C]);
+    const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
 
     return (
         <>
@@ -400,9 +402,9 @@ function AchieveBadge({ icon, label, color, unlocked, C }: { icon: string; label
 
 // ─── Styles factory ───────────────────────────────────────────────────────────
 
-const makeStyles = (C: any) => StyleSheet.create({
+const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
-    content: { padding: SIZES.xl, paddingTop: 56, gap: SIZES.xl },
+    content: { padding: SIZES.xl, paddingTop: topInset + SIZES.sm, gap: SIZES.xl },
 
     profileCard: {
         borderRadius: SIZES.borderRadius,
@@ -461,6 +463,6 @@ const modal = StyleSheet.create({
     inputLabel: { fontSize: SIZES.fontSm, fontWeight: '600', marginBottom: 4 },
     input: { height: 48, borderRadius: SIZES.borderRadius, borderWidth: 1, paddingHorizontal: SIZES.md, fontSize: SIZES.fontMd },
 
-    saveBtn: { backgroundColor: '#6366F1', height: 50, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center', marginTop: SIZES.sm },
+    saveBtn: { height: 50, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center', marginTop: SIZES.sm },
     saveBtnText: { color: '#fff', fontSize: SIZES.fontMd, fontWeight: '700' },
 });

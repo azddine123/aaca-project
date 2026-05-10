@@ -21,13 +21,17 @@ def test_root():
     assert response.json()["name"] == "AI Academic Cognitive Assistant"
 
 
-def test_docs_accessible():
-    """Test API documentation is accessible"""
+def test_docs_hidden_when_not_debug():
+    """With DEBUG=False (default in CI), /docs must return 404."""
+    from app.core.config import settings
     response = client.get("/docs")
-    assert response.status_code == 200
+    if settings.DEBUG:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 404
 
 
 def test_process_without_auth():
-    """Test that processing requires authentication"""
+    """Test that processing requires authentication (401 = missing credentials)"""
     response = client.post("/api/v1/process/image")
-    assert response.status_code == 403
+    assert response.status_code == 401

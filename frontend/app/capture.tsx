@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, Image, TextInput,
@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,9 +22,16 @@ type Step = 'idle' | 'ocr' | 'review' | 'processing' | 'done' | 'error';
 
 const STEPS = [
     { label: 'Photo', icon: 'camera-outline' },
-    { label: 'OCR', icon: 'text-recognition' },
+    { label: 'Extraction', icon: 'text-recognition' },
     { label: 'Correction', icon: 'text-box-check-outline' },
-    { label: 'Note', icon: 'check-circle-outline' },
+    { label: 'Note créée', icon: 'check-circle-outline' },
+];
+
+const AI_STEPS = [
+    { label: 'Analyse du contenu', icon: 'magnify' },
+    { label: 'Création du résumé', icon: 'text-box-outline' },
+    { label: 'Génération des exercices', icon: 'clipboard-check-outline' },
+    { label: 'Préparation des flashcards', icon: 'cards-outline' },
 ];
 
 interface ProcessResult {
@@ -87,13 +95,21 @@ export default function CaptureScreen() {
     const { authFetch } = useAuth();
     const { fetchNotes } = useNotes();
     const C = useAppColors();
-    const styles = useMemo(() => makeStyles(C), [C]);
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
 
     const [step, setStep] = useState<Step>('idle');
     const [preview, setPreview] = useState<string | null>(null);
     const [rawText, setRawText] = useState('');
     const [result, setResult] = useState<ProcessResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
+    const [aiStep, setAiStep] = useState(0);
+
+    useEffect(() => {
+        if (step !== 'processing') { setAiStep(0); return; }
+        const t = setInterval(() => setAiStep(i => Math.min(i + 1, AI_STEPS.length - 1)), 2200);
+        return () => clearInterval(t);
+    }, [step]);
 
     const runOcr = async (uri: string) => {
         setStep('ocr');
@@ -177,15 +193,25 @@ export default function CaptureScreen() {
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={styles.backBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retour"
+                >
                     <MaterialCommunityIcons name="arrow-left" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
                 <View style={styles.headerCopy}>
-                    <Text style={styles.headerTitle}>Scanner académique</Text>
-                    <Text style={styles.headerSub}>Photo, OCR, correction, note</Text>
+                    <Text style={styles.headerTitle}>Scanner un cours</Text>
+                    <Text style={styles.headerSub}>Photographiez · Extrayez · Corrigez</Text>
                 </View>
                 {step !== 'idle' && step !== 'ocr' ? (
-                    <TouchableOpacity onPress={reset} style={styles.iconBtn}>
+                    <TouchableOpacity
+                        onPress={reset}
+                        style={styles.iconBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Recommencer"
+                    >
                         <MaterialCommunityIcons name="refresh" size={20} color={C.textSecondary} />
                     </TouchableOpacity>
                 ) : (
@@ -254,7 +280,7 @@ export default function CaptureScreen() {
                                         <MaterialCommunityIcons name="image-area" size={38} color={C.primary} />
                                     </View>
                                     <Text style={styles.placeholderText}>Photographiez une page de cours</Text>
-                                    <Text style={styles.placeholderSub}>AACA extraira le texte sans modifier votre parcours OCR.</Text>
+                                    <Text style={styles.placeholderSub}>PicLearn extraira le texte sans modifier votre parcours OCR.</Text>
                                 </View>
                             )}
                             <ScannerFrame C={C} />
@@ -263,10 +289,28 @@ export default function CaptureScreen() {
                                 <View style={styles.overlay}>
                                     <AacaCard style={styles.overlayCard}>
                                         <ActivityIndicator size="large" color={C.primary} />
-                                        <Text style={styles.overlayTitle}>{step === 'ocr' ? 'Extraction OCR' : 'Génération IA'}</Text>
-                                        <Text style={styles.overlaySub}>
-                                            {step === 'ocr' ? 'Analyse de l\'image en cours' : 'Résumé, quiz et flashcards'}
+                                        <Text style={styles.overlayTitle}>
+                                            {step === 'ocr' ? 'Extraction du texte' : 'Analyse IA'}
                                         </Text>
+                                        {step === 'ocr' ? (
+                                            <Text style={styles.overlaySub}>Reconnaissance optique en cours…</Text>
+                                        ) : (
+                                            <View style={styles.aiSteps}>
+                                                {AI_STEPS.map((s, i) => (
+                                                    <View key={i} style={[styles.aiStepRow, { opacity: i <= aiStep ? 1 : 0.28 }]}>
+                                                        <MaterialCommunityIcons
+                                                            name={(i < aiStep ? 'check-circle' : i === aiStep ? s.icon : 'circle-outline') as any}
+                                                            size={13}
+                                                            color={i < aiStep ? C.success : i === aiStep ? C.primary : C.textMuted}
+                                                        />
+                                                        <Text style={[styles.aiStepLabel, {
+                                                            color: i < aiStep ? C.success : i === aiStep ? C.textPrimary : C.textMuted,
+                                                            fontWeight: i === aiStep ? '700' : '400',
+                                                        }]}>{s.label}</Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        )}
                                     </AacaCard>
                                 </View>
                             ) : null}
@@ -343,8 +387,8 @@ const sf = StyleSheet.create({
     scanLine: { position: 'absolute', left: 22, right: 22, top: '48%', height: 1 },
 });
 
-const makeStyles = (C: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: C.background, paddingTop: 56 },
+const makeStyles = (C: any, topInset: number) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background, paddingTop: topInset + SIZES.xs },
 
     header: {
         flexDirection: 'row',
@@ -355,9 +399,9 @@ const makeStyles = (C: any) => StyleSheet.create({
         gap: SIZES.sm,
     },
     backBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: C.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -365,9 +409,9 @@ const makeStyles = (C: any) => StyleSheet.create({
         borderColor: C.border,
     },
     iconBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: C.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -432,6 +476,9 @@ const makeStyles = (C: any) => StyleSheet.create({
     overlayCard: { alignItems: 'center', gap: SIZES.sm, minWidth: 210 },
     overlayTitle: { fontSize: SIZES.fontLg, fontWeight: '800', color: C.textPrimary },
     overlaySub: { color: C.textSecondary, fontSize: SIZES.fontSm, textAlign: 'center' },
+    aiSteps: { gap: 7, width: '100%' },
+    aiStepRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    aiStepLabel: { fontSize: SIZES.fontXs, lineHeight: 18 },
 
     bannerWrap: { paddingHorizontal: SIZES.xl, marginBottom: SIZES.sm },
     banner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },

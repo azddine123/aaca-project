@@ -1,24 +1,24 @@
 {
   "expo": {
-    "name": "AACA",
+    "name": "PicLearn",
     "slug": "aaca-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/piclearn-main-logo.png",
     "scheme": "aacamobile",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "AACA utilise la caméra pour capturer vos notes académiques.",
-        "NSPhotoLibraryUsageDescription": "AACA accède à vos photos pour importer des notes.",
-        "NSPhotoLibraryAddUsageDescription": "AACA enregistre automatiquement les photos prises dans votre galerie."
+        "NSCameraUsageDescription": "PicLearn utilise la caméra pour capturer vos notes académiques.",
+        "NSPhotoLibraryUsageDescription": "PicLearn accède à vos photos pour importer des notes.",
+        "NSPhotoLibraryAddUsageDescription": "PicLearn enregistre automatiquement les photos prises dans votre galerie."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/piclearn-main-logo.png",
         "backgroundColor": "#0F172A"
       },
       "edgeToEdgeEnabled": true,
@@ -34,14 +34,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/piclearn-main-logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/piclearn-main-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0F172A"
@@ -50,14 +50,14 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Autoriser AACA à utiliser la caméra pour capturer vos notes."
+          "cameraPermission": "Autoriser PicLearn à utiliser la caméra pour capturer vos notes."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "AACA accède à vos photos pour importer des notes.",
-          "savePhotosPermission": "AACA enregistre automatiquement les photos prises dans votre galerie.",
+          "photosPermission": "PicLearn accède à vos photos pour importer des notes.",
+          "savePhotosPermission": "PicLearn enregistre automatiquement les photos prises dans votre galerie.",
           "isAccessMediaLocationEnabled": false
         }
       ]
