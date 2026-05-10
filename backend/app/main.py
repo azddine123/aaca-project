@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         from app.services.mongodb_service import mongodb_service
 
-        if mongodb_service.db is not None:
+        if await mongodb_service.ping():
             logger.info("✅ MongoDB connected")
             await mongodb_service._create_indexes()
         else:
@@ -93,6 +93,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/images/{file_id}")
+async def serve_gridfs_image(
+    file_id: str,
+    current_user: str = Depends(get_current_user),
+):
+    """Serve an image stored in GridFS, enforcing ownership."""
+    from app.services.mongodb_service import mongodb_service as _db
+
+    result = await _db.get_image(file_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    data, content_type, owner_id = result
+    if not owner_id or owner_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return Response(content=data, media_type=content_type)
+
+
 @app.get("/uploads/{user_id}/{note_id}/{filename}")
 async def serve_upload(
     user_id: str,
@@ -129,7 +146,7 @@ async def health_check() -> dict:
     """Health check endpoint."""
     from app.services.mongodb_service import mongodb_service
 
-    db_status = "connected" if mongodb_service.db is not None else "disconnected (mock mode)"
+    db_status = "connected" if mongodb_service._connected else "disconnected"
 
     return {
         "status": "healthy",

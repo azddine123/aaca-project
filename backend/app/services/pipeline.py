@@ -23,6 +23,12 @@ from app.services.subject_classifier import subject_classifier
 
 logger = logging.getLogger("aaca")
 
+_VALID_SUBJECTS = frozenset({
+    "mathematics", "physics", "chemistry", "biology",
+    "computer_science", "engineering", "economics",
+    "literature", "history", "philosophy", "other",
+})
+
 
 class ProcessingPipeline:
     """Main processing pipeline for academic content extraction."""
@@ -172,6 +178,15 @@ class ProcessingPipeline:
                 "status": "success",
                 "title": structured_content.get("title", "Untitled"),
             }
+            if not options.get("subject_hint") and confidence < 0.4:
+                llm_subj = structured_content.get("subject_category", "")
+                if llm_subj and llm_subj in _VALID_SUBJECTS and llm_subj != "other":
+                    old_conf = confidence
+                    subject = llm_subj
+                    confidence = 0.7
+                    result["steps"]["classification"]["subject"] = subject
+                    result["steps"]["classification"]["confidence"] = confidence
+                    logger.info(f"📚 LLM subject override: {subject} (rule confidence was {old_conf:.2f})")
         except Exception as e:
             logger.warning(f"⚠️ Step 5 skipped (LLM unavailable): {e}")
             result["steps"]["structuring"] = {"status": "skipped", "reason": str(e)}

@@ -1,4 +1,4 @@
-// AACA Design System — supports Dark & Light themes
+// PicLearn Design System — supports Dark & Light themes
 
 export const DARK_COLORS = {
     // Brand

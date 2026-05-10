@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
-    View, Text, FlatList, StyleSheet, Alert,
+    View, Text, FlatList, StyleSheet,
     TouchableOpacity, TextInput, RefreshControl, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotes, Note } from '@/contexts/NotesContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
-import { AacaButton, AacaCard, EmptyState, SubjectBadge } from '@/components/UIKit';
+import { AacaButton, AacaCard, CaptureMenuModal, EmptyState, SubjectBadge } from '@/components/UIKit';
 import { SIZES, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -41,16 +42,18 @@ function subjectIcon(subject: string): string {
 }
 
 function notePreview(note: Note): string {
-    return note.preview || note.summary || note.raw_text || 'Fiche de cours générée par AACA.';
+    return note.preview || note.summary || note.raw_text || 'Fiche de cours générée par PicLearn.';
 }
 
 export default function NotesScreen() {
     const { notes, fetchNotes, isLoading, searchNotes } = useNotes();
     const C = useAppColors();
-    const styles = useMemo(() => makeStyles(C), [C]);
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
 
     const [query, setQuery] = useState('');
     const [activeFilter, setActiveFilter] = useState('all');
+    const [menuVisible, setMenuVisible] = useState(false);
 
     const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
     const handleSearch = (text: string) => {
@@ -83,17 +86,17 @@ export default function NotesScreen() {
                     label="Nouvelle"
                     icon="camera-plus-outline"
                     size="sm"
-                    onPress={() => Alert.alert(
-                        'Nouvelle note',
-                        'Choisissez le mode de capture',
-                        [
-                            { text: 'Séance multi-photos', onPress: () => router.push('/session-new') },
-                            { text: 'Capture rapide', onPress: () => router.push('/capture') },
-                            { text: 'Annuler', style: 'cancel' },
-                        ],
-                    )}
+                    onPress={() => setMenuVisible(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ajouter une nouvelle note"
                 />
             </View>
+            <CaptureMenuModal
+                visible={menuVisible}
+                onClose={() => setMenuVisible(false)}
+                onSelectSession={() => router.push('/session-new')}
+                onSelectCapture={() => router.push('/capture')}
+            />
 
             <View style={styles.searchContainer}>
                 <MaterialCommunityIcons name="magnify" size={18} color={C.textSecondary} />
@@ -154,7 +157,7 @@ export default function NotesScreen() {
                         title={query.length > 0 ? 'Aucun résultat' : 'Aucune note'}
                         subtitle={query.length > 0
                             ? `Aucune fiche ne correspond à "${query}".`
-                            : 'Capturez votre première page ou lancez une séance multi-images.'}
+                            : 'Scannez une page ou lancez une séance multi-pages.'}
                         actionLabel={query.length === 0 ? 'Nouvelle séance' : undefined}
                         onAction={query.length === 0 ? () => router.push('/session-new') : undefined}
                     />
@@ -211,7 +214,7 @@ export default function NotesScreen() {
     );
 }
 
-const makeStyles = (C: any) => StyleSheet.create({
+const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background },
 
     header: {
@@ -219,7 +222,7 @@ const makeStyles = (C: any) => StyleSheet.create({
         alignItems: 'flex-end',
         justifyContent: 'space-between',
         paddingHorizontal: SIZES.xl,
-        paddingTop: 56,
+        paddingTop: topInset + SIZES.sm,
         paddingBottom: SIZES.md,
         gap: SIZES.md,
     },

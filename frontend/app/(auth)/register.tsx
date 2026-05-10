@@ -4,6 +4,7 @@ import {
     StyleSheet, KeyboardAvoidingView, Platform,
     ActivityIndicator, ScrollView,
 } from 'react-native';
+import { AppLogo } from '@/components/AppLogo';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -89,12 +90,7 @@ export default function RegisterScreen() {
 
                 {/* Logo */}
                 <View style={styles.logoRow}>
-                    <View style={styles.logoSmallWrap}>
-                        <LinearGradient colors={G.primary} style={styles.logoSmall}>
-                            <Text style={styles.logoLetter}>A</Text>
-                        </LinearGradient>
-                    </View>
-                    <Text style={styles.appName}>AACA</Text>
+                    <AppLogo width={260} height={86} />
                 </View>
 
                 <Text style={styles.title}>Créer un compte</Text>
@@ -213,13 +209,9 @@ const makeStyles = (C: any) => StyleSheet.create({
     scroll: { flexGrow: 1, padding: SIZES.xl, paddingTop: SIZES.xxxl },
 
     topRow: { marginBottom: SIZES.lg },
-    backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
+    backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
 
-    logoRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md, marginBottom: SIZES.lg },
-    logoSmallWrap: { ...SHADOWS.primary },
-    logoSmall: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-    logoLetter: { fontSize: 20, fontWeight: '900', color: '#fff' },
-    appName: { fontSize: SIZES.fontXl, fontWeight: '900', color: C.textPrimary, letterSpacing: 4 },
+    logoRow: { alignItems: 'center', marginBottom: SIZES.lg },
 
     title:    { ...FONTS.h2, color: C.textPrimary, marginBottom: SIZES.xs },
     subtitle: { ...FONTS.body2, color: C.textSecondary, marginBottom: SIZES.xl },

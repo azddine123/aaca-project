@@ -25,14 +25,18 @@ class TestAuthEndpoints:
         assert response.json()["name"] == "AI Academic Cognitive Assistant"
 
     def test_docs_accessible(self, client):
-        """Test API documentation is accessible"""
+        """Test API documentation is accessible only in DEBUG mode"""
+        from app.core.config import settings
         response = client.get("/docs")
-        assert response.status_code == status.HTTP_200_OK
+        if settings.DEBUG:
+            assert response.status_code == status.HTTP_200_OK
+        else:
+            assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_access_protected_route_without_token(self, client):
         """Test accessing protected route without token fails"""
         response = client.get("/api/v1/user/me")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_access_protected_route_with_invalid_token(self, client):
         """Test accessing protected route with invalid token fails"""

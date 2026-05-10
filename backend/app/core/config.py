@@ -64,6 +64,16 @@ class Settings(BaseSettings):
         "http://localhost:8080",
     ]
 
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, v: Any) -> bool:
+        """Accept boolean or any string value for DEBUG (e.g. 'release', 'false', '0')."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("1", "true", "yes", "on")
+        return bool(v)
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

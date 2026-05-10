@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStudy } from '@/contexts/StudyContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -103,6 +104,7 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
     const C = useAppColors();
     const G = useAppGradients();
     const { authFetch } = useAuth();
+    const insets = useSafeAreaInsets();
     const [index, setIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
     const [done, setDone] = useState(false);
@@ -118,6 +120,25 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
         ]).start();
         setTimeout(() => setIsFlipped(f => !f), 120);
     }, [anim]);
+
+    const undo = () => {
+        if (index === 0 || ratings.length === 0) return;
+        setRatings(prev => prev.slice(0, -1));
+        setIsFlipped(false);
+        setIndex(index - 1);
+    };
+
+    const skip = () => {
+        Animated.sequence([
+            Animated.timing(anim, { toValue: 0, duration: 100, useNativeDriver: true }),
+            Animated.timing(anim, { toValue: 1, duration: 100, useNativeDriver: true }),
+        ]).start();
+        setTimeout(() => {
+            setIsFlipped(false);
+            if (index + 1 >= cards.length) setDone(true);
+            else setIndex(index + 1);
+        }, 100);
+    };
 
     const rate = (rating: number) => {
         const newRatings = [...ratings, rating];
@@ -150,7 +171,7 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
                 <LinearGradient colors={GRADIENTS.success} style={{ width: 96, height: 96, borderRadius: 48, justifyContent: 'center', alignItems: 'center', ...SHADOWS.primary }}>
                     <MaterialCommunityIcons name="check-decagram" size={40} color="#fff" />
                 </LinearGradient>
-                <Text style={{ fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, textAlign: 'center' }}>Session terminée !</Text>
+                <Text style={{ fontSize: SIZES.fontXXl, fontWeight: '700', color: C.textPrimary, textAlign: 'center' }}>Séance terminée !</Text>
                 <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, textAlign: 'center' }}>{known}/{cards.length} cartes maîtrisées</Text>
                 <View style={{ width: '100%', height: 8, backgroundColor: C.surfaceHigh, borderRadius: 4, overflow: 'hidden' }}>
                     <View style={{ height: '100%', width: `${(known / cards.length) * 100}%`, backgroundColor: C.success, borderRadius: 4 }} />
@@ -172,15 +193,20 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
     return (
         <View style={{ flex: 1, backgroundColor: C.background }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md, gap: SIZES.md }}>
-                <TouchableOpacity onPress={onExit} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: insets.top + SIZES.sm, paddingBottom: SIZES.md, gap: SIZES.md }}>
+                <TouchableOpacity
+                    onPress={onExit}
+                    style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitter la session"
+                >
                     <MaterialCommunityIcons name="close" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
                 <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
                     <StatusBadge label="Révision active" tone="info" icon="cards-outline" />
                     <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color: C.textSecondary }}>{index + 1} / {cards.length}</Text>
                 </View>
-                <View style={{ width: 38 }} />
+                <View style={{ width: 44 }} />
             </View>
 
             <View style={{ marginHorizontal: SIZES.xl, marginBottom: SIZES.xl, gap: 7 }}>
@@ -252,9 +278,31 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
                     ))}
                 </View>
             ) : (
-                <Text style={{ fontSize: SIZES.fontXs, color: C.textMuted, textAlign: 'center', paddingHorizontal: SIZES.xxl, marginBottom: SIZES.xxl }}>
-                    Lisez la question, puis touchez la carte pour voir la réponse
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.xl, marginBottom: SIZES.xxl }}>
+                    {index > 0 && ratings.length > 0 && (
+                        <TouchableOpacity
+                            onPress={undo}
+                            style={{ paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }}
+                            activeOpacity={0.75}
+                            accessibilityRole="button"
+                            accessibilityLabel="Annuler la dernière réponse"
+                        >
+                            <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary }}>Annuler</Text>
+                        </TouchableOpacity>
+                    )}
+                    <Text style={{ fontSize: SIZES.fontXs, color: C.textMuted, flex: 1, textAlign: 'center' }}>
+                        Lisez la question, puis touchez la carte pour voir la réponse
+                    </Text>
+                    <TouchableOpacity
+                        onPress={skip}
+                        style={{ paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.borderRadius, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel="Passer cette carte"
+                    >
+                        <Text style={{ fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary }}>Passer</Text>
+                    </TouchableOpacity>
+                </View>
             )}
         </View>
     );
@@ -266,6 +314,7 @@ function FlashcardSession({ cards, onExit }: { cards: any[]; onExit: () => void 
 function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
     const C = useAppColors();
     const { authFetch } = useAuth();
+    const insets = useSafeAreaInsets();
     const questions = quiz.questions || [];
     const [qIndex, setQIndex] = useState(0);
     const [selected, setSelected] = useState<string | null>(null);
@@ -334,8 +383,13 @@ function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
     return (
         <View style={{ flex: 1, backgroundColor: C.background }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: 56, paddingBottom: SIZES.md }}>
-                <TouchableOpacity onPress={onExit} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.xl, paddingTop: insets.top + SIZES.sm, paddingBottom: SIZES.md }}>
+                <TouchableOpacity
+                    onPress={onExit}
+                    style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitter le quiz"
+                >
                     <MaterialCommunityIcons name="close" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
                 <Text style={{ fontSize: SIZES.fontSm, fontWeight: '600', color: C.textSecondary }}>{qIndex + 1} / {questions.length}</Text>
@@ -445,10 +499,10 @@ function QuizSession({ quiz, onExit }: { quiz: any; onExit: () => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function IdleState({ dueCards, onStartDue }: { dueCards: any[]; onStartDue: () => void }) {
     const C = useAppColors();
+    const insets = useSafeAreaInsets();
     return (
         <ScrollView style={{ flex: 1, backgroundColor: C.background }} contentContainerStyle={{ padding: SIZES.xl, gap: SIZES.lg, paddingBottom: SIZES.xxxl }} showsVerticalScrollIndicator={false}>
-            <View style={{ paddingTop: 56, gap: 5 }}>
-                <Text style={{ fontSize: SIZES.fontXs, fontWeight: '800', color: C.primary, textTransform: 'uppercase', letterSpacing: 0 }}>Study</Text>
+            <View style={{ paddingTop: insets.top + SIZES.sm, gap: 5 }}>
                 <Text style={{ fontSize: SIZES.fontXXl, fontWeight: '800', color: C.textPrimary, letterSpacing: 0 }}>Révisions</Text>
                 <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary }}>
                     Cartes, quiz et entraînement depuis vos notes.

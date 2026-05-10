@@ -1,45 +1,40 @@
-import React from 'react';
-import { TouchableOpacity, View, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { TouchableOpacity, View, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs, router, Redirect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
+import { CaptureMenuModal } from '@/components/UIKit';
 
 function CaptureTabButton() {
     const C = useAppColors();
-    const openCaptureMenu = () => {
-        Alert.alert(
-            'Nouvelle note',
-            'Choisissez le mode de capture',
-            [
-                {
-                    text: 'Séance multi-photos',
-                    onPress: () => router.push('/session-new'),
-                },
-                {
-                    text: 'Capture rapide',
-                    onPress: () => router.push('/capture'),
-                },
-                { text: 'Annuler', style: 'cancel' },
-            ],
-        );
-    };
+    const [menuVisible, setMenuVisible] = useState(false);
     return (
-        <TouchableOpacity
-            style={styles.fab}
-            onPress={openCaptureMenu}
-            activeOpacity={0.85}
-        >
-            <View style={styles.fabInner}>
-                <LinearGradient
-                    colors={[C.primary, C.primaryDark]}
-                    style={StyleSheet.absoluteFillObject}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                />
-                <MaterialCommunityIcons name="camera-plus" size={26} color="#fff" />
-            </View>
-        </TouchableOpacity>
+        <>
+            <TouchableOpacity
+                style={styles.fab}
+                onPress={() => setMenuVisible(true)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Ajouter une note"
+            >
+                <View style={styles.fabInner}>
+                    <LinearGradient
+                        colors={[C.primary, C.primaryDark]}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    />
+                    <MaterialCommunityIcons name="camera-plus" size={26} color="#fff" />
+                </View>
+            </TouchableOpacity>
+            <CaptureMenuModal
+                visible={menuVisible}
+                onClose={() => setMenuVisible(false)}
+                onSelectSession={() => router.push('/session-new')}
+                onSelectCapture={() => router.push('/capture')}
+            />
+        </>
     );
 }
 
@@ -98,7 +93,7 @@ export default function TabsLayout() {
             <Tabs.Screen
                 name="study"
                 options={{
-                    title: 'Étude',
+                    title: 'Révisions',
                     tabBarIcon: ({ color, focused }) => (
                         <MaterialCommunityIcons
                             name={focused ? 'brain' : 'brain'}

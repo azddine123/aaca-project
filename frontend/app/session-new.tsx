@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, TextInput,
@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
@@ -15,8 +16,17 @@ import { ZelligePattern } from '@/components/ZelligePattern';
 import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS } from '@/theme';
 
+const AI_STEPS_SESSION = [
+    { label: 'Fusion des pages', icon: 'layers-outline' },
+    { label: 'Analyse du contenu', icon: 'magnify' },
+    { label: 'Création du résumé', icon: 'text-box-outline' },
+    { label: 'Génération des exercices', icon: 'clipboard-check-outline' },
+    { label: 'Préparation des flashcards', icon: 'cards-outline' },
+];
+
 // idle -> creating -> capturing -> finalizing -> done | error
 type Phase = 'idle' | 'creating' | 'capturing' | 'finalizing' | 'done' | 'error';
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved';
 
 interface CaptureItem {
     id: string;
@@ -58,14 +68,24 @@ export default function SessionNewScreen() {
     const { authFetch } = useAuth();
     const { fetchNotes } = useNotes();
     const C = useAppColors();
-    const styles = useMemo(() => makeStyles(C), [C]);
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
 
     const [phase, setPhase] = useState<Phase>('idle');
     const [sessionTitle, setSessionTitle] = useState('');
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [captures, setCaptures] = useState<CaptureItem[]>([]);
+    const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
     const [result, setResult] = useState<FinalResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
+    const [aiStep, setAiStep] = useState(0);
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (phase !== 'finalizing') { setAiStep(0); return; }
+        const t = setInterval(() => setAiStep(i => Math.min(i + 1, AI_STEPS_SESSION.length - 1)), 2200);
+        return () => clearInterval(t);
+    }, [phase]);
 
     const startSession = useCallback(async () => {
         const title = sessionTitle.trim();
@@ -144,21 +164,29 @@ export default function SessionNewScreen() {
         }
     }, [authFetch, sessionId]);
 
-    const saveCapturText = useCallback(async (captureId: string, text: string) => {
-        if (!sessionId || captureId.startsWith('local-')) return;
+    const saveCapturText = useCallback(async (captureId: string, text: string): Promise<boolean> => {
+        if (!sessionId || captureId.startsWith('local-')) return true;
+        setSaveStates(prev => ({ ...prev, [captureId]: 'saving' }));
         try {
             await authFetch(`${API_URL}/sessions/${sessionId}/captures/${captureId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ corrected_text: text }),
             });
+            setSaveStates(prev => ({ ...prev, [captureId]: 'saved' }));
+            setTimeout(() => setSaveStates(prev =>
+                prev[captureId] === 'saved' ? { ...prev, [captureId]: 'idle' } : prev
+            ), 2500);
+            return true;
         } catch {
-            // silent - user can retry via finalize
+            setSaveStates(prev => ({ ...prev, [captureId]: 'dirty' }));
+            return false;
         }
     }, [authFetch, sessionId]);
 
     const updateCaptureText = useCallback((id: string, text: string) => {
         setCaptures(prev => prev.map(c => c.id === id ? { ...c, text } : c));
+        setSaveStates(prev => ({ ...prev, [id]: 'dirty' }));
     }, []);
 
     const finalize = useCallback(async () => {
@@ -167,6 +195,24 @@ export default function SessionNewScreen() {
             Alert.alert('Aucune capture', 'Ajoutez au moins une photo avant de finaliser.');
             return;
         }
+
+        // Block if any save is already in progress
+        const hasSaving = captures.some(c => saveStates[c.id] === 'saving');
+        if (hasSaving) {
+            Alert.alert('Enregistrement en cours', "Attendez la fin de l'enregistrement avant de finaliser.");
+            return;
+        }
+
+        // Flush all dirty captures before calling finalize
+        const dirty = captures.filter(c => !c.id.startsWith('local-') && saveStates[c.id] === 'dirty');
+        if (dirty.length > 0) {
+            const results = await Promise.all(dirty.map(c => saveCapturText(c.id, c.text)));
+            if (results.some(ok => !ok)) {
+                Alert.alert('Erreur', "Certaines corrections n'ont pas pu être sauvegardées. Vérifiez votre connexion.");
+                return;
+            }
+        }
+
         setPhase('finalizing');
         try {
             const res = await authFetch(`${API_URL}/sessions/${sessionId}/finalize`, {
@@ -184,7 +230,45 @@ export default function SessionNewScreen() {
             setErrorMsg(e.message || 'Erreur lors de la finalisation');
             setPhase('error');
         }
-    }, [authFetch, sessionId, captures, fetchNotes]);
+    }, [authFetch, sessionId, captures, saveStates, saveCapturText, fetchNotes]);
+
+    const removeCapture = useCallback((captureId: string, index: number) => {
+        Alert.alert(
+            'Supprimer la page',
+            `Voulez-vous supprimer la page ${index + 1} ?`,
+            [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                    text: 'Supprimer', style: 'destructive', onPress: async () => {
+                        // Local-only captures (OCR not yet saved) just remove from state
+                        if (captureId.startsWith('local-') || !sessionId) {
+                            setCaptures(prev => prev.filter(c => c.id !== captureId));
+                            setSaveStates(prev => { const next = { ...prev }; delete next[captureId]; return next; });
+                            return;
+                        }
+                        setDeletingIds(prev => new Set(prev).add(captureId));
+                        try {
+                            const res = await authFetch(
+                                `${API_URL}/sessions/${sessionId}/captures/${captureId}`,
+                                { method: 'DELETE' },
+                            );
+                            if (!res.ok) {
+                                const err = await res.json().catch(() => ({}));
+                                Alert.alert('Erreur', err.detail || 'Impossible de supprimer la page.');
+                                return;
+                            }
+                            setCaptures(prev => prev.filter(c => c.id !== captureId));
+                            setSaveStates(prev => { const next = { ...prev }; delete next[captureId]; return next; });
+                        } catch {
+                            Alert.alert('Erreur réseau', 'La suppression a échoué. Vérifiez votre connexion.');
+                        } finally {
+                            setDeletingIds(prev => { const next = new Set(prev); next.delete(captureId); return next; });
+                        }
+                    },
+                },
+            ],
+        );
+    }, [authFetch, sessionId]);
 
     const reset = () => {
         setPhase('idle');
@@ -211,12 +295,17 @@ export default function SessionNewScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={styles.backBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retour"
+                >
                     <MaterialCommunityIcons name="arrow-left" size={22} color={C.textSecondary} />
                 </TouchableOpacity>
                 <View style={styles.headerCopy}>
                     <Text style={styles.headerTitle}>Nouvelle séance</Text>
-                    <Text style={styles.headerSub}>Timeline multi-images</Text>
+                    <Text style={styles.headerSub}>Séance multi-pages</Text>
                 </View>
                 {phase === 'capturing' ? (
                     <TouchableOpacity onPress={reset} style={styles.iconBtn}>
@@ -298,18 +387,23 @@ export default function SessionNewScreen() {
                         }
                         renderItem={({ item, index }) => {
                             const status = captureStatus(item);
+                            const saveState = saveStates[item.id] || 'idle';
+                            const editorBorderColor = saveState === 'dirty' ? C.warning + '80'
+                                : saveState === 'saving' ? C.primary + '80'
+                                : saveState === 'saved' ? C.success + '60'
+                                : C.border;
                             return (
                                 <CaptureTimelineItem
                                     index={index + 1}
                                     imageUri={item.imageUri}
-                                    title={`Capture ${index + 1}`}
+                                    title={`Page ${index + 1}`}
                                     statusLabel={status.label}
                                     statusTone={status.tone}
                                     meta={status.meta}
                                     isLast={index === captures.length - 1}
                                 >
                                     <TextInput
-                                        style={styles.textEditor}
+                                        style={[styles.textEditor, { borderColor: editorBorderColor }]}
                                         value={item.text}
                                         onChangeText={text => updateCaptureText(item.id, text)}
                                         onBlur={() => saveCapturText(item.id, item.text)}
@@ -319,6 +413,40 @@ export default function SessionNewScreen() {
                                         placeholderTextColor={C.textMuted}
                                         editable={!item.saving}
                                     />
+                                    <View style={styles.captureActions}>
+                                        {saveState !== 'idle' && (
+                                            <View style={styles.saveIndicator}>
+                                                {saveState === 'saving' && (
+                                                    <ActivityIndicator size="small" color={C.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+                                                )}
+                                                <MaterialCommunityIcons
+                                                    name={saveState === 'saved' ? 'check-circle-outline' : saveState === 'dirty' ? 'pencil-outline' : 'sync'}
+                                                    size={11}
+                                                    color={saveState === 'saved' ? C.success : saveState === 'dirty' ? C.warning : C.textMuted}
+                                                />
+                                                <Text style={[styles.saveStateText, {
+                                                    color: saveState === 'saved' ? C.success : saveState === 'dirty' ? C.warning : C.textMuted,
+                                                }]}>
+                                                    {saveState === 'dirty' ? 'Modifié' : saveState === 'saving' ? 'Enregistrement…' : 'Enregistré'}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <TouchableOpacity
+                                            style={[styles.deleteBtn, (item.saving || deletingIds.has(item.id)) && { opacity: 0.4 }]}
+                                            onPress={() => removeCapture(item.id, index)}
+                                            disabled={item.saving || deletingIds.has(item.id) || saveStates[item.id] === 'saving'}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Supprimer la page ${index + 1}`}
+                                        >
+                                            {deletingIds.has(item.id)
+                                                ? <ActivityIndicator size="small" color={C.error} style={{ transform: [{ scale: 0.65 }] }} />
+                                                : <MaterialCommunityIcons name="trash-can-outline" size={14} color={C.error} />
+                                            }
+                                            <Text style={[styles.deleteBtnText, { color: C.error }]}>
+                                                {deletingIds.has(item.id) ? 'Suppression…' : 'Supprimer'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 </CaptureTimelineItem>
                             );
                         }}
@@ -336,22 +464,41 @@ export default function SessionNewScreen() {
                             label={`Finaliser (${captures.length})`}
                             icon="brain"
                             onPress={finalize}
-                            disabled={captures.length === 0}
+                            disabled={captures.length === 0 || captures.some(c => c.saving || saveStates[c.id] === 'saving') || deletingIds.size > 0}
                             full
                         />
                     </View>
+                    {captures.length > 0 && (captures.some(c => c.saving || saveStates[c.id] === 'saving') || deletingIds.size > 0) && (
+                        <Text style={[styles.finalizeHint, { color: C.textMuted }]}>
+                            {'En attente de la fin des traitements OCR…'}
+                        </Text>
+                    )}
                 </>
             )}
 
             {phase === 'finalizing' && (
                 <View style={styles.centered}>
                     <ActivityIndicator size="large" color={C.primary} />
-                    <Text style={styles.loadingText}>Fusion des captures...</Text>
-                    <Text style={styles.loadingSub}>AACA structure le cours, le résumé et les exercices.</Text>
-                    <View style={styles.processingTags}>
-                        {['Fusion', 'Résumé', 'Quiz', 'Flashcards'].map(tag => (
-                            <StatusBadge key={tag} label={tag} tone="info" />
-                        ))}
+                    <Text style={styles.loadingText}>Génération de la note…</Text>
+                    <Text style={styles.loadingSub}>PicLearn structure le cours, le résumé et les exercices.</Text>
+                    <View style={[styles.aiSteps, { borderColor: C.border, backgroundColor: C.surface }]}>
+                        {AI_STEPS_SESSION.map((s, i) => {
+                            const done = i < aiStep;
+                            const active = i === aiStep;
+                            return (
+                                <View key={s.label} style={styles.aiStepRow}>
+                                    <MaterialCommunityIcons
+                                        name={(done ? 'check-circle' : active ? s.icon : 'circle-outline') as any}
+                                        size={18}
+                                        color={done ? C.success : active ? C.primary : C.textMuted}
+                                    />
+                                    <Text style={[styles.aiStepLabel, {
+                                        color: done ? C.success : active ? C.textPrimary : C.textMuted,
+                                        fontWeight: active ? '700' : '500',
+                                    }]}>{s.label}</Text>
+                                </View>
+                            );
+                        })}
                     </View>
                 </View>
             )}
@@ -404,8 +551,8 @@ export default function SessionNewScreen() {
     );
 }
 
-const makeStyles = (C: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: C.background, paddingTop: 56 },
+const makeStyles = (C: any, topInset: number) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background, paddingTop: topInset + SIZES.xs },
 
     header: {
         flexDirection: 'row',
@@ -416,9 +563,9 @@ const makeStyles = (C: any) => StyleSheet.create({
         gap: SIZES.sm,
     },
     backBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: C.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -426,9 +573,9 @@ const makeStyles = (C: any) => StyleSheet.create({
         borderColor: C.border,
     },
     iconBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: C.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -515,4 +662,15 @@ const makeStyles = (C: any) => StyleSheet.create({
     doneNoteTitle: { fontSize: SIZES.fontMd, fontWeight: '800', color: C.textPrimary, textAlign: 'center' },
     doneActions: { flexDirection: 'row', gap: SIZES.md, marginTop: SIZES.md, width: '100%' },
     errorText: { fontSize: SIZES.fontSm, color: C.textSecondary, textAlign: 'center', lineHeight: 20 },
+
+    captureActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 },
+    saveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    saveStateText: { fontSize: 10, fontWeight: '700' },
+    deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
+    deleteBtnText: { fontSize: 11, fontWeight: '700' },
+    finalizeHint: { textAlign: 'center', fontSize: SIZES.fontXs, paddingBottom: SIZES.sm, paddingHorizontal: SIZES.xl },
+
+    aiSteps: { width: '100%', borderWidth: 1, borderRadius: SIZES.borderRadius, padding: SIZES.md, gap: SIZES.sm, marginTop: SIZES.sm },
+    aiStepRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+    aiStepLabel: { fontSize: SIZES.fontSm },
 });
