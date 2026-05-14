@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity,
     StyleSheet, KeyboardAvoidingView, Platform,
-    ActivityIndicator, ScrollView,
+    ActivityIndicator, ScrollView, Modal,
 } from 'react-native';
 import { AppLogo } from '@/components/AppLogo';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +22,76 @@ function getStrength(pwd: string, C: any): Strength {
     return { level: 3, label: 'Fort', color: C.success };
 }
 
+const PRIVACY_POLICY_VERSION = '2026-05-v1';
+
+const PRIVACY_POLICY_TEXT = `POLITIQUE DE CONFIDENTIALITÉ — PicLearn
+Version ${PRIVACY_POLICY_VERSION} — Mai 2026
+
+1. DONNÉES COLLECTÉES
+Nous collectons les données suivantes :
+• Identité : email, nom complet, institution (optionnel)
+• Contenu pédagogique : images de cours, texte extrait par OCR, notes structurées, résumés
+• Activité : quiz, flashcards, résultats, progression académique, captures
+
+2. FINALITÉS DU TRAITEMENT
+• Authentification et gestion de votre compte
+• Génération de notes, quiz et flashcards via IA/OCR
+• Suivi de votre progression pédagogique personnalisée
+• Amélioration de la qualité du service
+
+3. INTELLIGENCE ARTIFICIELLE ET OCR
+Vos images et textes sont traités par des services OCR et des modèles de langage (LLM) pour extraire et structurer le contenu. Ces traitements sont effectués dans le cadre contractuel du service.
+
+4. VOS DROITS
+Conformément au RGPD, vous disposez des droits suivants :
+• Accès : consulter toutes vos données via Profil → Exporter mes données
+• Portabilité : télécharger vos données au format JSON
+• Suppression : supprimer intégralement votre compte et données via Profil → Supprimer mon compte
+• Rectification : modifier vos informations dans les paramètres du profil
+
+5. DURÉE DE CONSERVATION
+• Données de compte et notes : 365 jours après la dernière activité
+• Images capturées : 90 jours après la capture
+• Vous pouvez supprimer votre compte à tout moment
+
+6. SÉCURITÉ
+Vos mots de passe sont hachés (bcrypt). Les communications sont chiffrées (HTTPS). Les accès sont contrôlés par tokens JWT à durée limitée.
+
+7. SOUS-TRAITANTS
+• Base de données : MongoDB (stockage local ou hébergé)
+• IA/OCR : PaddleOCR, OpenAI, Anthropic (traitement des images et textes)
+
+8. CONTACT
+Pour toute question : support@piclearn-app.com`;
+
+function PrivacyPolicyModal({ visible, onClose, C }: { visible: boolean; onClose: () => void; C: any }) {
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <View style={[privacyModal.overlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+                <View style={[privacyModal.sheet, { backgroundColor: C.surface, borderColor: C.border }]}>
+                    <View style={[privacyModal.header, { borderBottomColor: C.border }]}>
+                        <Text style={[privacyModal.title, { color: C.textPrimary }]}>Politique de confidentialité</Text>
+                        <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <MaterialCommunityIcons name="close" size={22} color={C.textSecondary} />
+                        </TouchableOpacity>
+                    </View>
+                    <ScrollView style={privacyModal.body} showsVerticalScrollIndicator={false}>
+                        <Text style={[privacyModal.text, { color: C.textSecondary }]}>{PRIVACY_POLICY_TEXT}</Text>
+                        <View style={{ height: 24 }} />
+                    </ScrollView>
+                    <TouchableOpacity
+                        style={[privacyModal.closeBtn, { backgroundColor: C.primary }]}
+                        onPress={onClose}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={privacyModal.closeBtnText}>J'ai compris</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
 export default function RegisterScreen() {
     const { login } = useAuth();
     const C = useAppColors();
@@ -32,6 +102,8 @@ export default function RegisterScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [privacyConsent, setPrivacyConsent] = useState(false);
+    const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [nameFocused, setNameFocused] = useState(false);
@@ -50,12 +122,22 @@ export default function RegisterScreen() {
             setError('Le mot de passe doit contenir au moins 8 caractères.');
             return;
         }
+        if (!privacyConsent) {
+            setError('Vous devez accepter la politique de confidentialité pour créer un compte.');
+            return;
+        }
         try {
             setLoading(true);
             const res = await fetch(`${API_URL}/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim() }),
+                body: JSON.stringify({
+                    email: email.trim(),
+                    password,
+                    full_name: fullName.trim(),
+                    privacy_consent: true,
+                    privacy_policy_version: PRIVACY_POLICY_VERSION,
+                }),
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
@@ -179,11 +261,38 @@ export default function RegisterScreen() {
                         )}
                     </View>
 
+                    {/* Privacy consent */}
+                    <TouchableOpacity
+                        style={styles.consentRow}
+                        onPress={() => { setPrivacyConsent(v => !v); setError(''); }}
+                        activeOpacity={0.7}
+                    >
+                        <View style={[
+                            styles.checkbox,
+                            { borderColor: privacyConsent ? C.primary : C.border },
+                            privacyConsent && { backgroundColor: C.primary },
+                        ]}>
+                            {privacyConsent && (
+                                <MaterialCommunityIcons name="check" size={14} color="#fff" />
+                            )}
+                        </View>
+                        <Text style={[styles.consentText, { color: C.textSecondary }]}>
+                            {"J'accepte la "}
+                            <Text
+                                style={[styles.consentLink, { color: C.primary }]}
+                                onPress={e => { e.stopPropagation?.(); setShowPrivacyPolicy(true); }}
+                            >
+                                politique de confidentialité
+                            </Text>
+                            {" et le traitement de mes données pour générer mes ressources pédagogiques."}
+                        </Text>
+                    </TouchableOpacity>
+
                     {/* Submit */}
                     <TouchableOpacity
-                        style={[styles.submitBtn, loading && styles.submitDisabled]}
+                        style={[styles.submitBtn, (loading || !privacyConsent) && styles.submitDisabled]}
                         onPress={handleRegister}
-                        disabled={loading}
+                        disabled={loading || !privacyConsent}
                         activeOpacity={0.85}
                     >
                         <LinearGradient colors={G.primary} style={styles.submitGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
@@ -200,6 +309,12 @@ export default function RegisterScreen() {
                     <Text style={styles.linkHighlight}>Se connecter</Text>
                 </TouchableOpacity>
             </ScrollView>
+
+            <PrivacyPolicyModal
+                visible={showPrivacyPolicy}
+                onClose={() => setShowPrivacyPolicy(false)}
+                C={C}
+            />
         </KeyboardAvoidingView>
     );
 }
@@ -232,12 +347,28 @@ const makeStyles = (C: any) => StyleSheet.create({
     strengthSeg: { flex: 1, height: 3, borderRadius: 2 },
     strengthLabel: { fontSize: SIZES.fontXs, fontWeight: '700', minWidth: 60 },
 
+    consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, marginTop: SIZES.xs },
+    checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, justifyContent: 'center', alignItems: 'center', marginTop: 1, flexShrink: 0 },
+    consentText: { flex: 1, fontSize: SIZES.fontSm, lineHeight: 20 },
+    consentLink: { fontWeight: '700', textDecorationLine: 'underline' },
+
     submitBtn: { borderRadius: SIZES.borderRadius, overflow: 'hidden', marginTop: SIZES.xs, ...SHADOWS.primary },
-    submitDisabled: { opacity: 0.6 },
+    submitDisabled: { opacity: 0.5 },
     submitGrad: { height: 52, justifyContent: 'center', alignItems: 'center' },
     submitText: { color: '#fff', fontSize: SIZES.fontMd, fontWeight: '700' },
 
     linkRow: { flexDirection: 'row', justifyContent: 'center', marginTop: SIZES.xl },
     linkText: { ...FONTS.body2, color: C.textSecondary },
     linkHighlight: { fontSize: SIZES.fontSm, color: C.primary, fontWeight: '700' },
+});
+
+const privacyModal = StyleSheet.create({
+    overlay: { flex: 1, justifyContent: 'flex-end' },
+    sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%', borderWidth: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SIZES.xl, borderBottomWidth: 1 },
+    title: { fontSize: SIZES.fontXl, fontWeight: '700' },
+    body: { paddingHorizontal: SIZES.xl },
+    text: { fontSize: SIZES.fontSm, lineHeight: 22 },
+    closeBtn: { margin: SIZES.xl, height: 50, borderRadius: SIZES.borderRadius, justifyContent: 'center', alignItems: 'center' },
+    closeBtnText: { color: '#fff', fontSize: SIZES.fontMd, fontWeight: '700' },
 });

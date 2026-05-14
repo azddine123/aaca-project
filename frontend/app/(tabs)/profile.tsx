@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, ScrollView,
-    Alert, Modal, TextInput, ActivityIndicator,
+    Alert, Modal, TextInput, ActivityIndicator, Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -201,9 +201,59 @@ function PasswordModal({ visible, onClose }: { visible: boolean; onClose: () => 
     );
 }
 
+const PRIVACY_POLICY_TEXT = `POLITIQUE DE CONFIDENTIALITÉ — PicLearn
+Version 2026-05-v1 — Mai 2026
+
+1. DONNÉES COLLECTÉES
+Email, nom complet, institution (optionnel), images de cours, texte OCR, notes, quiz, flashcards, progression académique.
+
+2. FINALITÉS
+Authentification, génération de notes/quiz/flashcards via IA et OCR, suivi pédagogique personnalisé.
+
+3. INTELLIGENCE ARTIFICIELLE ET OCR
+Vos images et textes sont traités par PaddleOCR et des modèles LLM (OpenAI, Anthropic) pour extraire et structurer le contenu.
+
+4. VOS DROITS (RGPD)
+• Accès & portabilité : Profil → Exporter mes données (JSON)
+• Suppression : Profil → Supprimer mon compte (irréversible)
+• Rectification : paramètres du profil
+
+5. DURÉE DE CONSERVATION
+• Données de compte et notes : 365 jours après la dernière activité
+• Images : 90 jours après la capture
+
+6. SÉCURITÉ
+Mots de passe hachés (bcrypt), communications HTTPS, tokens JWT à durée limitée.
+
+7. CONTACT
+support@piclearn-app.com`;
+
+// ─── Privacy Modal ────────────────────────────────────────────────────────────
+function PrivacyModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+    const C = useAppColors();
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <TouchableOpacity style={modal.overlay} activeOpacity={1} onPress={onClose} />
+            <View style={[modal.sheet, { backgroundColor: C.surfaceMid, borderColor: C.border, maxHeight: '80%' }]}>
+                <View style={[modal.handle, { backgroundColor: C.border }]} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SIZES.sm }}>
+                    <Text style={[modal.title, { color: C.textPrimary }]}>Politique de confidentialité</Text>
+                    <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Text style={{ fontSize: 20, color: C.textSecondary }}>✕</Text>
+                    </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                    <Text style={{ color: C.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20 }}>{PRIVACY_POLICY_TEXT}</Text>
+                    <View style={{ height: 16 }} />
+                </ScrollView>
+            </View>
+        </Modal>
+    );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
-    const { auth, logout } = useAuth();
+    const { auth, logout, authFetch } = useAuth();
     const { notes } = useNotes();
     const { theme } = useAppearance();
     const C = useAppColors();
@@ -212,6 +262,9 @@ export default function ProfileScreen() {
     const [showTheme,    setShowTheme]    = useState(false);
     const [showEdit,     setShowEdit]     = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [showPrivacy,  setShowPrivacy]  = useState(false);
+    const [exportLoading,  setExportLoading]  = useState(false);
+    const [deleteLoading,  setDeleteLoading]  = useState(false);
 
     const themeLabel: Record<string, string> = { dark: 'Sombre', light: 'Clair', system: 'Système' };
 
@@ -222,6 +275,61 @@ export default function ProfileScreen() {
             [
                 { text: 'Annuler', style: 'cancel' },
                 { text: 'Déconnexion', style: 'destructive', onPress: logout },
+            ]
+        );
+    };
+
+    const handleExport = async () => {
+        setExportLoading(true);
+        try {
+            const res = await authFetch(`${API_URL}/privacy/export`);
+            if (!res.ok) throw new Error('Erreur serveur');
+            const data = await res.json();
+            const summary = [
+                `Export RGPD — ${new Date().toLocaleDateString('fr-FR')}`,
+                `Notes : ${data.data?.notes?.length ?? 0}`,
+                `Quiz : ${data.data?.quizzes?.length ?? 0}`,
+                `Flashcards : ${data.data?.flashcards?.length ?? 0}`,
+                `Sessions : ${data.data?.sessions?.length ?? 0}`,
+            ].join('\n');
+            Alert.alert(
+                'Données exportées',
+                `${summary}\n\nLes données complètes sont disponibles via l'API.`,
+                [{ text: 'OK' }]
+            );
+        } catch {
+            Alert.alert('Erreur', 'Impossible d\'exporter les données. Réessayez plus tard.');
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Supprimer mon compte',
+            'Cette action est IRRÉVERSIBLE. Toutes vos données (notes, quiz, flashcards, images) seront supprimées définitivement.\n\nÊtes-vous absolument sûr(e) ?',
+            [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                    text: 'Supprimer définitivement',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setDeleteLoading(true);
+                        try {
+                            const res = await authFetch(`${API_URL}/privacy/account`, { method: 'DELETE' });
+                            if (!res.ok) throw new Error('Erreur serveur');
+                            Alert.alert(
+                                'Compte supprimé',
+                                'Votre compte et toutes vos données ont été supprimés.',
+                                [{ text: 'OK', onPress: logout }]
+                            );
+                        } catch {
+                            Alert.alert('Erreur', 'Impossible de supprimer le compte. Réessayez plus tard.');
+                        } finally {
+                            setDeleteLoading(false);
+                        }
+                    },
+                },
             ]
         );
     };
@@ -250,6 +358,29 @@ export default function ProfileScreen() {
                     label: 'Sécurité',
                     sub: 'Mot de passe',
                     onPress: () => setShowPassword(true),
+                },
+            ],
+        },
+        {
+            title: 'Confidentialité & données',
+            items: [
+                {
+                    icon: 'database-export-outline',
+                    label: exportLoading ? 'Export en cours…' : 'Exporter mes données',
+                    sub: 'Format JSON',
+                    onPress: handleExport,
+                },
+                {
+                    icon: 'shield-account-outline',
+                    label: 'Politique de confidentialité',
+                    sub: 'v2026-05',
+                    onPress: () => setShowPrivacy(true),
+                },
+                {
+                    icon: 'delete-forever-outline',
+                    label: deleteLoading ? 'Suppression…' : 'Supprimer mon compte',
+                    color: C.error,
+                    onPress: handleDeleteAccount,
                 },
             ],
         },
@@ -370,6 +501,7 @@ export default function ProfileScreen() {
             <ThemeModal    visible={showTheme}    onClose={() => setShowTheme(false)} />
             <EditProfileModal visible={showEdit}  onClose={() => setShowEdit(false)} />
             <PasswordModal visible={showPassword} onClose={() => setShowPassword(false)} />
+            <PrivacyModal  visible={showPrivacy}  onClose={() => setShowPrivacy(false)} />
         </>
     );
 }

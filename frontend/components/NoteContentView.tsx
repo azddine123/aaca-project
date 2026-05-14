@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MathFormula from './MathFormula';
+import { MathParagraph } from './MathParagraph';
 import type { StructuredContent } from '@/contexts/NotesContext';
 import { SIZES } from '@/theme';
 
@@ -12,67 +13,8 @@ interface Props {
     C: any;
 }
 
-// ── Math text parser ──────────────────────────────────────────────────────────
-type Seg = { t: 'text' | 'math' | 'display'; v: string };
-
-function parse(text: string): Seg[] {
-    const out: Seg[] = [];
-    // Supports $$...$$ / $...$ and \[...\] / \(...\) delimiters
-    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)/g;
-    let last = 0, m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-        if (m.index > last) out.push({ t: 'text', v: text.slice(last, m.index) });
-        if (m[1] !== undefined)      out.push({ t: 'display', v: m[1] });
-        else if (m[2] !== undefined) out.push({ t: 'math',    v: m[2] });
-        else if (m[3] !== undefined) out.push({ t: 'display', v: m[3] });
-        else                         out.push({ t: 'math',    v: m[4] });
-        last = m.index + m[0].length;
-    }
-    if (last < text.length) out.push({ t: 'text', v: text.slice(last) });
-    return out;
-}
-
-// ── Paragraph: mixed text + inline/display math ───────────────────────────────
-function MathParagraph({ text, C }: { text: string; C: any }) {
-    if (!text?.trim()) return null;
-    const segs = parse(text.trim());
-
-    const hasDisplay = segs.some(s => s.t === 'display');
-    if (hasDisplay) {
-        return (
-            <View style={{ gap: 6 }}>
-                {segs.map((s, i) => {
-                    if (s.t === 'text' && s.v.trim())
-                        return <Text key={i} style={[styles.body, { color: C.textPrimary }]}>{s.v}</Text>;
-                    if (s.t === 'display')
-                        return <DisplayFormulaBlock key={i} latex={s.v} C={C} />;
-                    if (s.t === 'math')
-                        return <MathFormula key={i} formula={s.v} display={false} color={C.textPrimary} />;
-                    return null;
-                })}
-            </View>
-        );
-    }
-
-    const hasMath = segs.some(s => s.t === 'math');
-    if (!hasMath)
-        return <Text style={[styles.body, { color: C.textPrimary }]}>{text.trim()}</Text>;
-
-    return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
-            {segs.map((s, i) => {
-                if (s.t === 'text' && s.v)
-                    return <Text key={i} style={[styles.body, { color: C.textPrimary }]}>{s.v}</Text>;
-                if (s.t === 'math')
-                    return <MathFormula key={i} formula={s.v} display={false} fontSize={14} color={C.textPrimary} />;
-                return null;
-            })}
-        </View>
-    );
-}
-
-// ── Bloc formule display (centré, grand) ──────────────────────────────────────
-function DisplayFormulaBlock({ latex, description, C }: { latex: string; description?: string; C: any }) {
+// ── Bloc formule display avec description optionnelle ─────────────────────────
+function DisplayFormulaBlockWithDesc({ latex, description, C }: { latex: string; description?: string; C: any }) {
     if (!latex?.trim()) return null;
     return (
         <View style={[styles.displayBlock, { backgroundColor: C.surface, borderColor: C.border }]}>
@@ -151,7 +93,7 @@ export default function NoteContentView({ raw_text, processed_content, latex_for
                 <View style={styles.block}>
                     <SectionLabel icon="function-variant" text="Formules" C={C} />
                     {pcFormulas.map((f: any, i: number) => (
-                        <DisplayFormulaBlock
+                        <DisplayFormulaBlockWithDesc
                             key={i}
                             latex={getLatex(f)}
                             description={f.description}
@@ -166,7 +108,7 @@ export default function NoteContentView({ raw_text, processed_content, latex_for
                 <View style={styles.block}>
                     <SectionLabel icon="function-variant" text="Formules détectées" C={C} />
                     {latex_formulas.map((f, i) => (
-                        <DisplayFormulaBlock
+                        <DisplayFormulaBlockWithDesc
                             key={i}
                             latex={getLatex(f)}
                             description={f.description}
@@ -225,13 +167,7 @@ const styles = StyleSheet.create({
     secTitle: { fontSize: SIZES.fontMd, fontWeight: '700', marginBottom: 2 },
     body: { fontSize: SIZES.fontMd, lineHeight: 24 },
 
-    displayBlock: {
-        borderRadius: 14,
-        borderWidth: 1,
-        marginVertical: 4,
-        overflow: 'hidden',
-        alignItems: 'center',
-    },
+    displayBlock: { borderRadius: 14, borderWidth: 1, overflow: 'hidden', alignItems: 'center' },
     formulaDesc: {
         width: '100%',
         fontSize: SIZES.fontXs,

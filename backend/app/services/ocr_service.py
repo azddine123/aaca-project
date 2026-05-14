@@ -45,8 +45,8 @@ class OCRService:
         """Extract text from image.
 
         Returns structured result with text, bounding boxes, and confidence.
-        If the primary engine returns a confidence score below OCR_CONFIDENCE_THRESHOLD,
-        automatically falls back to OpenAI Vision for improved accuracy.
+        Falls back to Claude Vision when confidence is low or text is empty
+        (PaddleOCR cannot read handwriting despite reporting high confidence).
         """
         if self.engine == "openai_vision":
             result = await self._extract_with_openai_vision(image_bytes, detect_formulas)
@@ -63,13 +63,13 @@ class OCRService:
         else:
             raise ValueError(f"Unknown OCR engine: {self.engine}")
 
-        # Fallback to OpenAI Vision if confidence is too low
+        # Fallback to OpenAI Vision when confidence is low OR text is empty
+        # (PaddleOCR hardcodes 0.84 confidence but returns blank text for handwriting)
         avg_conf = result.get("average_confidence", 1.0)
-        if avg_conf < settings.OCR_CONFIDENCE_THRESHOLD:
-            logger.warning(
-                f"⚠️ OCR confidence {avg_conf:.2f} below threshold "
-                f"{settings.OCR_CONFIDENCE_THRESHOLD} — falling back to OpenAI Vision"
-            )
+        text_empty = not result.get("text", "").strip()
+        if avg_conf < settings.OCR_CONFIDENCE_THRESHOLD or text_empty:
+            reason = f"confidence {avg_conf:.2f} < threshold" if avg_conf < settings.OCR_CONFIDENCE_THRESHOLD else "empty text output"
+            logger.warning(f"⚠️ OCR {reason} — falling back to OpenAI Vision")
             try:
                 result = await self._extract_with_openai_vision(image_bytes, detect_formulas)
             except Exception as e:
@@ -80,7 +80,7 @@ class OCRService:
     async def _extract_with_openai_vision(
         self, image_bytes: bytes, detect_formulas: bool = True
     ) -> dict[str, Any]:
-        """Extract text via OpenAI GPT-4o Vision (used as low-confidence fallback)."""
+        """Extract text via OpenAI GPT-4o Vision (secondary fallback)."""
         import base64
 
         from openai import AsyncOpenAI
@@ -90,12 +90,14 @@ class OCRService:
 
         if self._openai_client is None:
             self._openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            
+
         b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         prompt = (
-            "Extract all text from this image exactly as it appears, preserving structure. "
-            "If mathematical formulas are present, write them in LaTeX notation."
+            "You are an OCR specialist. Transcribe ALL text visible in this image exactly as it appears, "
+            "including handwritten, printed, or mixed content. Preserve line breaks and structure. "
+            "Write any mathematical expression in LaTeX notation (inline: \\(expr\\), block: \\[expr\\]). "
+            "Do NOT add comments or explanations — output only the transcribed text."
         )
 
         response = await self._openai_client.chat.completions.create(
@@ -120,7 +122,7 @@ class OCRService:
             "paragraphs": [p.strip() for p in text.split("\n\n") if p.strip()],
             "bounding_boxes": [],
             "confidences": [],
-            "average_confidence": 1.0,  # OpenAI Vision is treated as high-confidence
+            "average_confidence": 1.0,
             "detected_formulas": formulas,
             "engine": "openai_vision",
         }

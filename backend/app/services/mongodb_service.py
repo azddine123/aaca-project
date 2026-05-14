@@ -791,6 +791,157 @@ class MongoDBService:
 
         return await local_storage.upload_image(user_id, note_id, image_bytes, filename)
 
+    # ============== RGPD Operations ==============
+
+    async def get_user_all_data(self, user_id: str) -> dict[str, Any]:
+        """Aggregate all data belonging to user_id for GDPR export.
+
+        Returns a dict with one key per collection. password_hash is stripped.
+        """
+        result: dict[str, Any] = {}
+
+        user = await self.get_user(user_id)
+        if user:
+            user.pop("password_hash", None)
+        result["user"] = user
+
+        async def _fetch(col: str, query: dict) -> list:
+            collection = self._get_collection(col)
+            if collection is None:
+                return []
+            docs = await collection.find(query).to_list(length=None)
+            for d in docs:
+                d["id"] = str(d.pop("_id"))
+            return _sanitize(docs)
+
+        result["notes"]             = await _fetch("notes",            {"user_id": user_id})
+        result["quizzes"]           = await _fetch("quizzes",          {"user_id": user_id})
+        result["quiz_results"]      = await _fetch("quiz_results",     {"user_id": user_id})
+        result["flashcards"]        = await _fetch("flashcards",       {"user_id": user_id})
+        result["flashcard_reviews"] = await _fetch("flashcard_reviews",{"user_id": user_id})
+        result["sessions"]          = await _fetch("sessions",         {"user_id": user_id})
+        result["captures"]          = await _fetch("captures",         {"user_id": user_id})
+
+        progress_col = self._get_collection("user_progress")
+        if progress_col is not None:
+            p = await progress_col.find_one({"user_id": user_id})
+            if p:
+                p["id"] = str(p.pop("_id"))
+                result["user_progress"] = _sanitize(p)
+            else:
+                result["user_progress"] = None
+        else:
+            result["user_progress"] = None
+
+        return result
+
+    async def delete_user_all_data(self, user_id: str) -> dict[str, int]:
+        """Delete ALL data belonging to user_id. Returns counts per collection.
+
+        Cascades: notes → quizzes/flashcards/quiz_results, then user doc.
+        Never touches other users' data.
+        """
+        counts: dict[str, int] = {}
+
+        async def _del(col: str, query: dict) -> int:
+            collection = self._get_collection(col)
+            if collection is None:
+                return 0
+            res = await collection.delete_many(query)
+            return res.deleted_count
+
+        # Collect note-level quiz/flashcard IDs for cascade
+        notes_col = self._get_collection("notes")
+        note_ids: list[str] = []
+        if notes_col is not None:
+            async for doc in notes_col.find({"user_id": user_id}, {"_id": 1}):
+                note_ids.append(str(doc["_id"]))
+
+        # Delete quiz_results for quizzes linked to user notes
+        quiz_ids: list[str] = []
+        quizzes_col = self._get_collection("quizzes")
+        if quizzes_col is not None and note_ids:
+            async for doc in quizzes_col.find({"note_id": {"$in": note_ids}}, {"_id": 1}):
+                quiz_ids.append(str(doc["_id"]))
+
+        if quiz_ids:
+            counts["quiz_results_cascade"] = await _del("quiz_results", {"quiz_id": {"$in": quiz_ids}})
+
+        # Also delete quiz_results linked directly to user_id
+        counts["quiz_results"] = await _del("quiz_results", {"user_id": user_id})
+
+        # Delete flashcard reviews for user flashcards
+        fc_ids: list[str] = []
+        fc_col = self._get_collection("flashcards")
+        if fc_col is not None:
+            async for doc in fc_col.find({"user_id": user_id}, {"_id": 1}):
+                fc_ids.append(str(doc["_id"]))
+        if fc_ids:
+            counts["flashcard_reviews"] = await _del(
+                "flashcard_reviews", {"flashcard_id": {"$in": fc_ids}}
+            )
+        else:
+            counts["flashcard_reviews"] = 0
+
+        counts["flashcards"] = await _del("flashcards", {"user_id": user_id})
+        counts["quizzes"]    = await _del("quizzes",    {"user_id": user_id})
+        counts["notes"]      = await _del("notes",      {"user_id": user_id})
+        counts["sessions"]   = await _del("sessions",   {"user_id": user_id})
+        counts["captures"]   = await _del("captures",   {"user_id": user_id})
+        counts["user_progress"] = await _del("user_progress", {"user_id": user_id})
+
+        # Delete GridFS images belonging to user
+        gridfs_deleted = 0
+        if self.gridfs is not None and self._connected:
+            try:
+                files_col = self.db["fs.files"]
+                async for doc in files_col.find({"metadata.user_id": user_id}, {"_id": 1}):
+                    try:
+                        await self.gridfs.delete(doc["_id"])
+                        gridfs_deleted += 1
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"GridFS user deletion partial: {e}")
+        counts["gridfs_images"] = gridfs_deleted
+
+        # Delete local uploads directory for user
+        local_deleted = 0
+        try:
+            import shutil
+            from pathlib import Path
+            upload_path = Path(settings.UPLOAD_DIR) / user_id
+            if upload_path.exists():
+                shutil.rmtree(upload_path)
+                local_deleted = 1
+        except Exception as e:
+            logger.warning(f"Local upload deletion failed for user {user_id}: {e}")
+        counts["local_uploads_dir"] = local_deleted
+
+        # Delete RAG index entries
+        rag_deleted = 0
+        try:
+            from app.services.rag_service import rag_service
+            await rag_service.delete_user_notes(user_id)
+            rag_deleted = 1
+        except Exception as e:
+            logger.warning(f"RAG index deletion failed for user {user_id}: {e}")
+        counts["rag_index"] = rag_deleted
+
+        # Delete user document last
+        user_col = self._get_collection("users")
+        if user_col is not None:
+            try:
+                oid = ObjectId(user_id)
+                res = await user_col.delete_one({"_id": oid})
+                counts["user"] = res.deleted_count
+            except Exception:
+                counts["user"] = 0
+        else:
+            counts["user"] = 0
+
+        return counts
+
     async def get_image(self, file_id: str) -> tuple[bytes, str, str] | None:
         """Retrieve image bytes, content_type and owner user_id from GridFS.
 

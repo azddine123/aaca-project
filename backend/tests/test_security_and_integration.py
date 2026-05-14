@@ -270,6 +270,8 @@ class TestMongoDBDisconnectedMode:
                     "email": "new@example.com",
                     "password": "securepass123",
                     "full_name": "New User",
+                    "privacy_consent": True,
+                    "privacy_policy_version": "2026-05-v1",
                 },
             )
 

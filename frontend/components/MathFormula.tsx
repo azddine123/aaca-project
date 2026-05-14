@@ -11,7 +11,6 @@ interface Props {
 }
 
 function buildHtml(formula: string, display: boolean, color: string, bg: string, fs: number): string {
-    // JSON.stringify guarantees safe escaping of all special chars
     const json = JSON.stringify(formula);
     const pad = display ? '14px 20px' : '2px 4px';
     const minH = display ? 56 : 24;
@@ -41,7 +40,7 @@ body{
 </style>
 </head>
 <body>
-<span id="m" class="fb">${formula.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>
+<span id="m" class="fb">${formula.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
   crossorigin="anonymous"></script>
 <script>
@@ -55,8 +54,16 @@ body{
     });
     document.getElementById('m').className='';
   }catch(e){}
-  var h=document.body.scrollHeight;
-  window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(String(h||${minH}));
+  function sendHeight(){
+    var h=document.body.scrollHeight;
+    window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(String(h||${minH}));
+  }
+  // Wait for layout pass before measuring
+  if(window.requestAnimationFrame){
+    requestAnimationFrame(function(){setTimeout(sendHeight,0);});
+  }else{
+    setTimeout(sendHeight,100);
+  }
 })();
 </script>
 </body>
@@ -77,9 +84,14 @@ export default function MathFormula({
     if (!formula?.trim()) return null;
 
     return (
-        <View style={{ width: '100%', height, overflow: 'hidden' }}>
+        // No overflow:hidden here — on Android it clips the native WebView and leaves a blank box
+        <View style={{ width: '100%', height }}>
             <WebView
-                source={{ html: buildHtml(formula, display, color, background, fs) }}
+                source={{
+                    html: buildHtml(formula, display, color, background, fs),
+                    // baseUrl lets Android load CDN scripts (data: origin blocks CORS otherwise)
+                    baseUrl: 'https://cdn.jsdelivr.net',
+                }}
                 style={{ flex: 1, backgroundColor: background }}
                 scrollEnabled={false}
                 showsVerticalScrollIndicator={false}

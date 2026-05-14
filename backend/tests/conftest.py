@@ -24,6 +24,17 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Clear slowapi in-memory counters before each test to prevent cross-test rate-limit bleed."""
+    try:
+        from app.api.routes import limiter
+        limiter._storage.reset()
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     """Create a test client for the FastAPI app."""

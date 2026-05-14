@@ -4,7 +4,7 @@
 
 import logging
 import statistics
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, Request
@@ -65,7 +65,13 @@ limiter = Limiter(key_func=get_remote_address)
 @router.post("/auth/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")
 async def register(request: Request, user_data: UserCreate) -> dict:
-    """Register a new user."""
+    """Register a new user. Requires explicit privacy consent."""
+    if not user_data.privacy_consent:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le consentement à la politique de confidentialité est obligatoire.",
+        )
+
     existing = await mongodb_service.get_user_by_email(user_data.email)
     if existing:
         raise HTTPException(
@@ -75,6 +81,7 @@ async def register(request: Request, user_data: UserCreate) -> dict:
 
     user_dict = user_data.model_dump()
     user_dict["password_hash"] = get_password_hash(user_dict.pop("password"))
+    user_dict["privacy_consent_at"] = datetime.now(timezone.utc)
 
     user_id = await mongodb_service.create_user(user_dict)
 
@@ -481,9 +488,18 @@ async def ask_note(
         response = await llm_service._call_llm(
             prompt=f"Question: {body.question}\n\nContenu du cours:\n{note['raw_text'][:4000]}",
             system_prompt=(
-                "Tu es un assistant pédagogique. Réponds à la question en te basant "
-                "uniquement sur le contenu fourni. Sois précis et clair. "
-                "Si la réponse n'est pas dans le contenu, dis-le clairement."
+                "Tu es un assistant pédagogique expert et rigoureux. "
+                "Réponds à la question en te basant uniquement sur le contenu fourni. "
+                "Si la réponse n'est pas dans le contenu, dis-le clairement.\n\n"
+                "RÈGLES DE FORMATAGE STRICTES :\n"
+                "- Toute expression ou symbole mathématique, même simple (ex: x, α, n²), "
+                "doit être écrit en LaTeX inline : \\(expression\\)\n"
+                "- Toute formule ou équation importante doit être mise en bloc display : "
+                "\\[formule\\]\n"
+                "- Utilise **texte** pour les termes importants ou titres de sections.\n"
+                "- Ne mélange jamais du texte mathématique brut avec du texte normal : "
+                "chaque symbole math doit être dans \\(...\\) ou \\[...\\].\n"
+                "- Sois précis, structuré, et pédagogique."
             ),
             temperature=0.3,
         )
@@ -1178,6 +1194,32 @@ async def finalize_session(
         "flashcards_count": len(flashcard_ids),
         "capture_count": len(captures),
         "title": note_data["title"],
+    }
+
+
+# =============================================================================
+# Privacy / RGPD Routes
+# =============================================================================
+
+@router.get("/privacy/export")
+async def export_user_data(current_user: str = Depends(get_current_user)) -> dict:
+    """Export all personal data for the authenticated user (GDPR Art. 20)."""
+    data = await mongodb_service.get_user_all_data(current_user)
+    return {
+        "export_date": datetime.now(timezone.utc).isoformat(),
+        "user_id": current_user,
+        "data": data,
+    }
+
+
+@router.delete("/privacy/account", status_code=status.HTTP_200_OK)
+async def delete_account(current_user: str = Depends(get_current_user)) -> dict:
+    """Permanently delete the authenticated user's account and all associated data (GDPR Art. 17)."""
+    summary = await mongodb_service.delete_user_all_data(current_user)
+    return {
+        "deleted": True,
+        "user_id": current_user,
+        "summary": summary,
     }
 
 
