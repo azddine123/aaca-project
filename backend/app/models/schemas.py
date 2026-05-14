@@ -63,6 +63,8 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """User registration model."""
     password: str = Field(..., min_length=8, max_length=128)
+    privacy_consent: bool = Field(..., description="Acceptation obligatoire de la politique de confidentialité")
+    privacy_policy_version: str = Field("2026-05-v1", description="Version de la politique acceptée")
 
 
 class User(UserBase):

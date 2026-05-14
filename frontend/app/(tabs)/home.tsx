@@ -25,6 +25,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { API_URL } from '@/config/api';
 import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
+import { AppLogo } from '@/components/AppLogo';
 
 interface Stats {
     total_notes: number;
@@ -122,8 +123,8 @@ export default function HomeScreen() {
         >
             <View style={styles.header}>
                 <View style={styles.headerCopy}>
+                    <AppLogo width={140} height={46} />
                     <Text style={styles.greeting}>Bonjour, {firstName}</Text>
-                    <Text style={styles.headline}>Tableau de bord</Text>
                 </View>
                 <TouchableOpacity
                     style={styles.avatarWrap}
@@ -306,8 +307,7 @@ const makeStyles = (C: any) => StyleSheet.create({
         paddingBottom: SIZES.md,
     },
     headerCopy: { flex: 1, minWidth: 0 },
-    greeting: { fontSize: SIZES.fontSm, color: C.textSecondary, fontWeight: '600' },
-    headline: { fontSize: 28, fontWeight: '800', letterSpacing: 0, marginTop: 2, color: C.textPrimary },
+    greeting: { fontSize: SIZES.fontSm, color: C.textSecondary, fontWeight: '600', marginTop: 4 },
     avatarWrap: {
         width: 44,
         height: 44,

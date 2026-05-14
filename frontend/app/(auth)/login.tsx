@@ -10,6 +10,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors, useAppGradients, useAppearance } from '@/contexts/AppearanceContext';
 import { SIZES, FONTS, SHADOWS } from '@/theme';
+import { AppLogo } from '@/components/AppLogo';
 
 export default function LoginScreen() {
     const { login } = useAuth();
@@ -53,12 +54,7 @@ export default function LoginScreen() {
 
             {/* Logo section */}
             <View style={styles.logoSection}>
-                <View style={styles.logoCircleWrap}>
-                    <LinearGradient colors={G.primary} style={styles.logoCircle}>
-                        <Text style={styles.logoLetter}>A</Text>
-                    </LinearGradient>
-                </View>
-                <Text style={styles.appName}>AACA</Text>
+                <AppLogo width={220} height={73} />
                 <Text style={styles.tagline}>AI Academic Cognitive Assistant</Text>
             </View>
 
@@ -148,10 +144,6 @@ const makeStyles = (C: any) => StyleSheet.create({
     root: { flex: 1, backgroundColor: C.background, justifyContent: 'center', padding: SIZES.xl },
 
     logoSection: { alignItems: 'center', marginBottom: SIZES.xxl + 4, gap: SIZES.sm },
-    logoCircleWrap: { ...SHADOWS.primary },
-    logoCircle: { width: 76, height: 76, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-    logoLetter: { fontSize: 38, fontWeight: '900', color: '#fff' },
-    appName: { fontSize: SIZES.fontXXl, fontWeight: '900', color: C.textPrimary, letterSpacing: 6 },
     tagline: { ...FONTS.body2, color: C.textSecondary, textAlign: 'center' },
 
     card: { backgroundColor: C.surface, borderRadius: SIZES.borderRadiusXl, padding: SIZES.xl, gap: SIZES.md, borderWidth: 1, borderColor: C.border, ...SHADOWS.sm },

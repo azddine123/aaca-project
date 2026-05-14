@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotes } from '@/contexts/NotesContext';
 import { useStudy } from '@/contexts/StudyContext';
 import NoteContentView from '@/components/NoteContentView';
+import AssistantMessage from '@/components/AssistantMessage';
 import { AacaCard, StatusBadge, SubjectBadge } from '@/components/UIKit';
 import { ZelligePattern } from '@/components/ZelligePattern';
 import { useAuth } from '@/contexts/AuthContext';
@@ -227,7 +228,7 @@ export default function NoteDetailScreen() {
                                     <Text style={styles.sectionTitle}>Résumé IA</Text>
                                 </View>
                                 <AacaCard style={styles.summaryCard}>
-                                    <Text style={styles.bodyText}>{currentNote.summary}</Text>
+                                    <AssistantMessage text={currentNote.summary} C={C} />
                                 </AacaCard>
                                 {concepts.length > 0 ? (
                                     <View style={styles.conceptsBlock}>
@@ -372,7 +373,11 @@ export default function NoteDetailScreen() {
                                             <Text style={[styles.assistantTag, { color: C.primary }]}>Assistant</Text>
                                         </View>
                                     )}
-                                    <Text style={{ fontSize: SIZES.fontSm, color: C.textPrimary, lineHeight: 20 }}>{msg.text}</Text>
+                                    {msg.role === 'assistant' ? (
+                                        <AssistantMessage text={msg.text} C={C} />
+                                    ) : (
+                                        <Text style={{ fontSize: SIZES.fontSm, color: C.textPrimary, lineHeight: 20 }}>{msg.text}</Text>
+                                    )}
                                 </View>
                             ))}
                             {qaLoading && (
