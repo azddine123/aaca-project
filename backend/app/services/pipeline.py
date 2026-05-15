@@ -143,6 +143,7 @@ class ProcessingPipeline:
     ) -> dict[str, Any]:
         """Steps 4 to 9 extracted to avoid duplication."""
         result: dict[str, Any] = {"steps": {}}
+        target_language = options.get("target_language") or options.get("language") or "fr"
 
         # ── Step 4: Subject Classification ───────────────────────────────
         logger.info("📚 Step 4: Subject classification...")
@@ -173,7 +174,9 @@ class ProcessingPipeline:
         }
         try:
             structured_content = await llm_service.structure_content(
-                corrected_text, subject_hint=subject,
+                corrected_text,
+                subject_hint=subject,
+                target_language=target_language,
             )
             result["steps"]["structuring"] = {
                 "status": "success",
@@ -232,6 +235,7 @@ class ProcessingPipeline:
                     corrected_text,
                     summary_type=options.get("summary_type", "detailed"),
                     target_level=options.get("target_level"),
+                    target_language=target_language,
                 )
                 result["steps"]["summary"] = {"status": "success"}
                 return summary_data
@@ -251,12 +255,14 @@ class ProcessingPipeline:
                         note_id=note_id,
                         num_questions=options.get("num_quiz_questions", 5),
                         difficulty=options.get("difficulty", "intermediate"),
+                        target_language=target_language,
                     )
                 else:
                     quiz_data = await llm_service.generate_quiz(
                         corrected_text,
                         num_questions=options.get("num_quiz_questions", 5),
                         difficulty=options.get("difficulty", "intermediate"),
+                        target_language=target_language,
                     )
                 result["steps"]["quiz"] = {
                     "status": "success",
@@ -278,11 +284,13 @@ class ProcessingPipeline:
                         user_id=user_id,
                         note_id=note_id,
                         num_cards=options.get("num_flashcards", 10),
+                        target_language=target_language,
                     )
                 else:
                     flashcards_data = await llm_service.generate_flashcards(
                         corrected_text,
                         num_cards=options.get("num_flashcards", 10),
+                        target_language=target_language,
                     )
                 result["steps"]["flashcards"] = {
                     "status": "success",
@@ -310,6 +318,7 @@ class ProcessingPipeline:
             "summary": summary_data,
             "quiz": quiz_data,
             "flashcards": flashcards_data,
+            "content_language": target_language,
         }
 
     async def process_pdf(

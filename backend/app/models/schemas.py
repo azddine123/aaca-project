@@ -65,6 +65,7 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
     privacy_consent: bool = Field(..., description="Acceptation obligatoire de la politique de confidentialité")
     privacy_policy_version: str = Field("2026-05-v1", description="Version de la politique acceptée")
+    preferred_language: Literal["fr", "en", "ar"] = "fr"
 
 
 class User(UserBase):
@@ -72,6 +73,7 @@ class User(UserBase):
     id: str
     cognitive_level: CognitiveLevel = CognitiveLevel.INTERMEDIATE
     preferred_subjects: list[SubjectCategory] = []
+    preferred_language: Literal["fr", "en", "ar"] = "fr"
     created_at: datetime
     updated_at: datetime
     is_active: bool = True
@@ -81,6 +83,7 @@ class User(UserBase):
 class UserUpdateSchema(BaseModel):
     full_name: str | None = Field(None, min_length=1, max_length=100)
     institution: str | None = Field(None, max_length=200)
+    preferred_language: Literal["fr", "en", "ar"] | None = None
 
 class PasswordChangeSchema(BaseModel):
     current_password: str
@@ -263,6 +266,7 @@ class Note(NoteBase):
     session_id: str | None = None          # set when note comes from a CourseSession
     original_image_url: str | None = None  # None for text-only or multi-image notes
     processed_image_url: str | None = None  # preprocessed/OCR-optimized version
+    content_language: Literal["fr", "en", "ar"] = "fr"
     processed_content: StructuredContent
     raw_text: str
     summary: str | None = None

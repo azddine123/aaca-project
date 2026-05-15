@@ -6,7 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, type PreferredLanguage } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
 import { useAppearance, useAppColors, type Theme } from '@/contexts/AppearanceContext';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
@@ -21,6 +21,12 @@ type MenuItem = {
     color?: string;
     onPress: () => void;
 };
+
+const LANGUAGE_OPTIONS: { value: PreferredLanguage; label: string; desc: string }[] = [
+    { value: 'fr', label: 'Français', desc: 'Notes, résumés, quiz et flashcards en français' },
+    { value: 'en', label: 'English', desc: 'Notes, summaries, quizzes and flashcards in English' },
+    { value: 'ar', label: 'العربية', desc: 'الملاحظات والملخصات والاختبارات والبطاقات بالعربية' },
+];
 
 // ─── Theme Picker Modal ───────────────────────────────────────────────────────
 function ThemeModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -50,6 +56,59 @@ function ThemeModal({ visible, onClose }: { visible: boolean; onClose: () => voi
                         >
                             <View style={[modal.optionIcon, { backgroundColor: (active ? C.primary : C.textSecondary) + '20' }]}>
                                 <MaterialCommunityIcons name={opt.icon as any} size={22} color={active ? C.primary : C.textSecondary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[modal.optionLabel, { color: C.textPrimary }]}>{opt.label}</Text>
+                                <Text style={[modal.optionDesc, { color: C.textSecondary }]}>{opt.desc}</Text>
+                            </View>
+                            {active && <MaterialCommunityIcons name="check-circle" size={20} color={C.primary} />}
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+        </Modal>
+    );
+}
+
+// ─── Language Picker Modal ────────────────────────────────────────────────────
+function LanguageModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+    const { auth, authFetch, updateUserLanguage } = useAuth();
+    const C = useAppColors();
+
+    const selectLanguage = async (value: PreferredLanguage) => {
+        const previous = auth.preferredLanguage;
+        await updateUserLanguage(value);
+        onClose();
+        try {
+            const res = await authFetch(`${API_URL}/user/me`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ preferred_language: value }),
+            });
+            if (!res.ok) throw new Error('Échec de la mise à jour');
+        } catch {
+            await updateUserLanguage(previous);
+            Alert.alert('Erreur', 'Impossible de mettre à jour la langue.');
+        }
+    };
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <TouchableOpacity style={modal.overlay} activeOpacity={1} onPress={onClose} />
+            <View style={[modal.sheet, { backgroundColor: C.surfaceMid, borderColor: C.border }]}>
+                <View style={[modal.handle, { backgroundColor: C.border }]} />
+                <Text style={[modal.title, { color: C.textPrimary }]}>Langue du contenu</Text>
+                {LANGUAGE_OPTIONS.map((opt) => {
+                    const active = auth.preferredLanguage === opt.value;
+                    return (
+                        <TouchableOpacity
+                            key={opt.value}
+                            style={[modal.option, { borderColor: active ? C.primary : C.border, backgroundColor: active ? C.primary + '15' : C.surface }]}
+                            onPress={() => selectLanguage(opt.value)}
+                            activeOpacity={0.8}
+                        >
+                            <View style={[modal.optionIcon, { backgroundColor: (active ? C.primary : C.textSecondary) + '20' }]}>
+                                <MaterialCommunityIcons name="translate" size={22} color={active ? C.primary : C.textSecondary} />
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={[modal.optionLabel, { color: C.textPrimary }]}>{opt.label}</Text>
@@ -260,6 +319,7 @@ export default function ProfileScreen() {
     const insets = useSafeAreaInsets();
 
     const [showTheme,    setShowTheme]    = useState(false);
+    const [showLanguage, setShowLanguage] = useState(false);
     const [showEdit,     setShowEdit]     = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showPrivacy,  setShowPrivacy]  = useState(false);
@@ -267,6 +327,7 @@ export default function ProfileScreen() {
     const [deleteLoading,  setDeleteLoading]  = useState(false);
 
     const themeLabel: Record<string, string> = { dark: 'Sombre', light: 'Clair', system: 'Système' };
+    const languageLabel: Record<PreferredLanguage, string> = { fr: 'Français', en: 'English', ar: 'العربية' };
 
     const handleLogout = () => {
         Alert.alert(
@@ -396,8 +457,8 @@ export default function ProfileScreen() {
                 {
                     icon: 'translate',
                     label: 'Langue',
-                    sub: 'Français',
-                    onPress: () => Alert.alert('Langue', 'D\'autres langues seront disponibles prochainement.\nActuellement : Français'),
+                    sub: languageLabel[auth.preferredLanguage],
+                    onPress: () => setShowLanguage(true),
                 },
                 {
                     icon: 'help-circle-outline',
@@ -499,6 +560,7 @@ export default function ProfileScreen() {
             </ScrollView>
 
             <ThemeModal    visible={showTheme}    onClose={() => setShowTheme(false)} />
+            <LanguageModal visible={showLanguage} onClose={() => setShowLanguage(false)} />
             <EditProfileModal visible={showEdit}  onClose={() => setShowEdit(false)} />
             <PasswordModal visible={showPassword} onClose={() => setShowPassword(false)} />
             <PrivacyModal  visible={showPrivacy}  onClose={() => setShowPrivacy(false)} />
