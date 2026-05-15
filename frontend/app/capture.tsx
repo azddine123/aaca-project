@@ -108,6 +108,8 @@ export default function CaptureScreen() {
     const [aiStep, setAiStep] = useState(0);
     const [understood, setUnderstood] = useState(false);
     const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+    const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+    const [processedImageUrl, setProcessedImageUrl] = useState<string | null>(null);
 
     useEffect(() => { fetchSubjects(); }, []);
 
@@ -129,6 +131,8 @@ export default function CaptureScreen() {
             }
             const data = await res.json();
             setRawText(data.raw_text || '');
+            setOriginalImageUrl(data.original_image_url || null);
+            setProcessedImageUrl(data.processed_image_url || null);
             setStep('review');
         } catch (e: any) {
             setErrorMsg(e.message || "Impossible d'extraire le texte");
@@ -145,6 +149,8 @@ export default function CaptureScreen() {
         try {
             const body: Record<string, unknown> = { raw_text: rawText };
             if (selectedSubjectId) body.selected_subject_id = selectedSubjectId;
+            if (originalImageUrl) body.original_image_url = originalImageUrl;
+            if (processedImageUrl) body.processed_image_url = processedImageUrl;
             const res = await authFetch(`${API_URL}/notes/from-text`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -178,6 +184,7 @@ export default function CaptureScreen() {
                     if (lib.status === 'granted') await MediaLibrary.saveToLibraryAsync(uri);
                 } catch { }
                 setPreview(uri); setResult(null); setErrorMsg('');
+                setOriginalImageUrl(null); setProcessedImageUrl(null);
                 await runOcr(uri);
             }
         } else {
@@ -190,12 +197,23 @@ export default function CaptureScreen() {
             if (!picked.canceled && picked.assets[0]) {
                 const uri = picked.assets[0].uri;
                 setPreview(uri); setResult(null); setErrorMsg('');
+                setOriginalImageUrl(null); setProcessedImageUrl(null);
                 await runOcr(uri);
             }
         }
     };
 
-    const reset = () => { setStep('idle'); setPreview(null); setRawText(''); setResult(null); setErrorMsg(''); setUnderstood(false); setSelectedSubjectId(null); };
+    const reset = () => {
+        setStep('idle');
+        setPreview(null);
+        setRawText('');
+        setResult(null);
+        setErrorMsg('');
+        setUnderstood(false);
+        setSelectedSubjectId(null);
+        setOriginalImageUrl(null);
+        setProcessedImageUrl(null);
+    };
     const isWorking = step === 'ocr' || step === 'processing';
 
     return (

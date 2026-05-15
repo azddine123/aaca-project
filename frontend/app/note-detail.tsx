@@ -595,6 +595,8 @@ const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     },
     titleBlock: { paddingHorizontal: SIZES.xl, paddingBottom: SIZES.lg, gap: SIZES.sm },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, flexWrap: 'wrap' },
+    changeSubjectBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: SIZES.borderRadiusFull, paddingHorizontal: 8, paddingVertical: 4 },
+    changeSubjectText: { fontSize: SIZES.fontXs, fontWeight: '700' },
     noteTitle:  { fontSize: SIZES.fontXXl, fontWeight: '800', color: C.textPrimary, lineHeight: 34, letterSpacing: 0 },
     datePill:   { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: C.surfaceMid },
     noteDate:   { fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '700' },
