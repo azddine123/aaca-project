@@ -63,6 +63,43 @@ function formatDate(d: string | undefined): string {
     catch { return ''; }
 }
 
+function cleanNotePreview(text: string): string {
+    if (!text) return '';
+    return text
+        .replace(/```[\w]*\n?/g, '')
+        .replace(/`{1,3}/g, '')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')
+        .replace(/\n{2,}/g, ' ')
+        .replace(/\n/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function isArabic(text: string): boolean {
+    return /[؀-ۿݐ-ݿ]/.test(text);
+}
+
+function NoteCardSkeleton({ C }: { C: ReturnType<typeof useAppColors> }) {
+    return (
+        <View style={[skel.card, { backgroundColor: C.surface, borderColor: C.border }]}>
+            <View style={[skel.icon, { backgroundColor: C.surfaceMid }]} />
+            <View style={skel.body}>
+                <View style={[skel.pill, { width: 60, backgroundColor: C.surfaceMid }]} />
+                <View style={[skel.line, { width: '78%', backgroundColor: C.surfaceMid }]} />
+                <View style={[skel.line, { width: '52%', backgroundColor: C.surfaceMid }]} />
+            </View>
+        </View>
+    );
+}
+const skel = StyleSheet.create({
+    card: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 8, borderWidth: 1, padding: 14 },
+    icon: { width: 40, height: 40, borderRadius: 8, flexShrink: 0 },
+    body: { flex: 1, gap: 8 },
+    pill: { height: 14, borderRadius: 20 },
+    line: { height: 10, borderRadius: 5 },
+});
+
 export default function HomeScreen() {
     const { auth, authFetch } = useAuth();
     const { notes, fetchNotes, isLoading } = useNotes();
@@ -243,7 +280,11 @@ export default function HomeScreen() {
                 </TouchableOpacity>
             </View>
 
-            {recentNotes.length === 0 ? (
+            {isLoading && notes.length === 0 ? (
+                <View style={styles.notesWrap}>
+                    {[0, 1, 3].map(i => <NoteCardSkeleton key={i} C={C} />)}
+                </View>
+            ) : recentNotes.length === 0 ? (
                 <EmptyState
                     icon="notebook-plus-outline"
                     title="Aucune note pour l'instant"
@@ -256,7 +297,12 @@ export default function HomeScreen() {
                     {recentNotes.map((note: any) => {
                         const color = SUBJECT_COLORS[note.subject] || C.primary;
                         const icon = getSubjectIcon(note.subject);
-                        const cardCount = note.flashcards?.length ?? note.flashcards_count ?? '—';
+                        const cardCount = note.flashcards?.length ?? note.flashcards_count;
+                        const rawPreview = note.preview || note.summary || note.raw_text || '';
+                        const preview = cleanNotePreview(rawPreview);
+                        const titleIsArabic = isArabic(note.title || '');
+                        const previewIsArabic = isArabic(preview);
+                        const hasAiSummary = !!note.summary;
                         return (
                             <TouchableOpacity
                                 key={note.id}
@@ -264,22 +310,46 @@ export default function HomeScreen() {
                                 activeOpacity={0.82}
                             >
                                 <AacaCard accentColor={color} style={styles.noteCard}>
-                                    <View style={[styles.noteIcon, { backgroundColor: color + '14' }]}>
-                                        <MaterialCommunityIcons name={icon as any} size={18} color={color} />
+                                    <View style={[styles.noteIcon, { backgroundColor: color + '18' }]}>
+                                        <MaterialCommunityIcons name={icon as any} size={20} color={color} />
                                     </View>
                                     <View style={styles.noteBody}>
-                                        <View style={styles.noteTop}>
+                                        <View style={styles.noteTopRow}>
                                             <SubjectBadge label={SUBJECT_LABELS[note.subject] || 'Autre'} color={color} />
+                                            {hasAiSummary && (
+                                                <View style={[styles.aiBadge, { backgroundColor: C.primary + '14', borderColor: C.primary + '30' }]}>
+                                                    <MaterialCommunityIcons name="creation" size={9} color={C.primary} />
+                                                    <Text style={[styles.aiBadgeText, { color: C.primary }]}>IA</Text>
+                                                </View>
+                                            )}
                                             <Text style={styles.noteTime}>{formatDate(note.created_at)}</Text>
                                         </View>
-                                        <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
-                                        <Text style={styles.notePreview} numberOfLines={2}>
-                                            {note.preview || note.summary || note.raw_text || 'Note de cours structurée'}
+                                        <Text
+                                            style={[styles.noteTitle, titleIsArabic && styles.rtl]}
+                                            numberOfLines={2}
+                                        >
+                                            {note.title}
                                         </Text>
-                                        <View style={styles.noteMeta}>
-                                            <MaterialCommunityIcons name="cards-outline" size={12} color={C.textMuted} />
-                                            <Text style={styles.noteMetaText}>{cardCount} cartes</Text>
-                                        </View>
+                                        {preview ? (
+                                            <Text
+                                                style={[styles.notePreview, previewIsArabic && styles.rtl]}
+                                                numberOfLines={2}
+                                            >
+                                                {preview}
+                                            </Text>
+                                        ) : (
+                                            <Text style={[styles.notePreview, styles.notePlaceholder]}>
+                                                Aucun aperçu disponible
+                                            </Text>
+                                        )}
+                                        {cardCount != null && (
+                                            <View style={styles.noteMeta}>
+                                                <MaterialCommunityIcons name="cards-outline" size={11} color={C.textMuted} />
+                                                <Text style={styles.noteMetaText}>
+                                                    {cardCount} carte{Number(cardCount) > 1 ? 's' : ''}
+                                                </Text>
+                                            </View>
+                                        )}
                                     </View>
                                     <MaterialCommunityIcons name="chevron-right" size={17} color={C.textMuted} />
                                 </AacaCard>
@@ -386,20 +456,33 @@ const makeStyles = (C: any) => StyleSheet.create({
         alignItems: 'center',
         gap: SIZES.sm,
         paddingLeft: SIZES.md,
+        paddingVertical: 12,
     },
     noteIcon: {
-        width: 42,
-        height: 42,
+        width: 40,
+        height: 40,
         borderRadius: SIZES.borderRadius,
         justifyContent: 'center',
         alignItems: 'center',
         flexShrink: 0,
     },
-    noteBody: { flex: 1, minWidth: 0, gap: 4 },
-    noteTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    noteTitle: { fontSize: SIZES.fontMd, fontWeight: '800', color: C.textPrimary },
-    notePreview: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 17 },
+    noteBody: { flex: 1, minWidth: 0, gap: 3 },
+    noteTopRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    noteTitle: { fontSize: SIZES.fontMd, fontWeight: '800', color: C.textPrimary, lineHeight: 20 },
+    notePreview: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 16 },
+    notePlaceholder: { fontStyle: 'italic', color: C.textMuted },
     noteTime: { fontSize: 10, color: C.textMuted, fontWeight: '600', marginLeft: 'auto' },
-    noteMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    noteMetaText: { fontSize: SIZES.fontXs, color: C.textMuted, fontWeight: '600' },
+    noteMeta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+    noteMetaText: { fontSize: 10, color: C.textMuted, fontWeight: '600' },
+    aiBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        borderRadius: SIZES.borderRadiusFull,
+        borderWidth: 1,
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+    },
+    aiBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
+    rtl: { writingDirection: 'rtl', textAlign: 'right' },
 });
