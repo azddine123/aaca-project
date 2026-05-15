@@ -138,6 +138,8 @@ class NoteFromTextRequest(BaseModel):
     title: str | None = None
     subject_hint: str | None = None
     selected_subject_id: str | None = None  # explicit user subject choice
+    original_image_url: str | None = None
+    processed_image_url: str | None = None
 
 class AskNoteRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
@@ -271,9 +273,35 @@ async def ocr_only(
         contents, perspective_correction=True, enhance_contrast=True, denoise=True,
     )
     result = await _ocr.extract_text(processed, detect_formulas=True)
+
+    original_image_url: str | None = None
+    processed_image_url: str | None = None
+    try:
+        import uuid
+
+        pending_ref = f"pending-{uuid.uuid4().hex}"
+        original_image_url = await mongodb_service.upload_image(
+            current_user,
+            pending_ref,
+            contents,
+            file.filename or "capture.png",
+            image_type="original",
+        )
+        processed_image_url = await mongodb_service.upload_image(
+            current_user,
+            pending_ref,
+            processed,
+            "processed_capture.png",
+            image_type="processed",
+        )
+    except Exception as e:
+        logger.warning(f"OCR image persistence failed: {e}")
+
     return {
         "raw_text": result.get("text", ""),
         "confidence": result.get("average_confidence", 1.0),
+        "original_image_url": original_image_url,
+        "processed_image_url": processed_image_url,
     }
 
 @router.post("/process/image", response_model=ProcessingResult)
@@ -417,7 +445,7 @@ async def capture_and_process(
                 current_user,
                 note_id,
                 processed_bytes,
-                f"processed_{file.filename or 'capture.png'}",
+                "processed_capture.png",
                 image_type="processed",
             )
         except Exception as _e:
@@ -508,6 +536,9 @@ async def create_note_from_text(
         if explicit and explicit["user_id"] == current_user:
             subj_id, subj_name, subj_src = explicit["id"], explicit["name"], "user_selected"
 
+    original_image_url = await _owned_image_url_or_none(data.original_image_url, current_user)
+    processed_image_url = await _owned_image_url_or_none(data.processed_image_url, current_user)
+
     note_data: dict[str, Any] = {
         "user_id": current_user,
         "title": data.title or post_ocr["structured_content"].get("title", "Untitled"),
@@ -517,6 +548,8 @@ async def create_note_from_text(
         "subject_confidence": post_ocr["subject_confidence"],
         "subject_source": subj_src,
         "tags": [],
+        "original_image_url": original_image_url,
+        "processed_image_url": processed_image_url,
         "processed_content": post_ocr["structured_content"],
         "raw_text": data.raw_text,
         "summary": (post_ocr.get("summary") or {}).get("summary", ""),
@@ -576,6 +609,31 @@ async def _get_owned_note(note_id: str, current_user: str) -> dict:
         )
     return note
 
+
+async def _owned_image_url_or_none(url: str | None, current_user: str) -> str | None:
+    """Accept only image URLs that belong to the current user.
+
+    The capture flow sends image URLs returned by /process/ocr-only. This guard
+    prevents a crafted request from attaching another user's GridFS image.
+    """
+    if not url:
+        return None
+
+    if url.startswith("/images/"):
+        file_id = url.removeprefix("/images/")
+        owner_id = await mongodb_service.get_gridfs_file_owner(file_id)
+        return url if owner_id == current_user else None
+
+    upload_prefix = f"/uploads/{current_user}/"
+    if url.startswith(upload_prefix):
+        return url
+
+    public_upload_prefix = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/uploads/{current_user}/"
+    if url.startswith(public_upload_prefix):
+        return url
+
+    return None
+
 @router.get("/notes", response_model=list[NoteListItem])
 async def list_notes(
     subject: SubjectCategory | None = None,
@@ -629,6 +687,10 @@ async def get_note_images(
     """
     note = await _get_owned_note(note_id, current_user)
     session_id: str | None = note.get("session_id")
+    if not session_id:
+        produced_by = await mongodb_service.get_session_by_final_note_id(note_id)
+        if produced_by and produced_by.get("user_id") == current_user:
+            session_id = produced_by.get("id")
 
     if not session_id:
         images: list[dict] = []
@@ -1426,7 +1488,7 @@ async def add_capture(
     capture_processed_url: str | None = None
     try:
         capture_processed_url = await mongodb_service.upload_image(
-            current_user, session_id, processed, f"processed_{file.filename or 'capture.png'}",
+            current_user, session_id, processed, "processed_capture.png",
             session_id=session_id, image_type="processed",
         )
     except Exception as _e:

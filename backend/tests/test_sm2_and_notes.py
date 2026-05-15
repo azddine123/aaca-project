@@ -51,6 +51,7 @@ def _note(**overrides):
         "subject": "mathematics",
         "tags": [],
         "original_image_url": None,
+        "processed_image_url": None,
         "processed_content": {
             "title": "Calculus",
             "sections": [],
@@ -118,6 +119,11 @@ class TestNoteFromText:
                 return_value=_NOTE_ID,
             ),
             patch(
+                "app.services.mongodb_service.mongodb_service.get_or_create_default_subjects",
+                new_callable=AsyncMock,
+                return_value=[{"id": "subj-math", "name": "Maths"}],
+            ),
+            patch(
                 "app.services.rag_service.rag_service.index_note",
                 new_callable=AsyncMock,
                 return_value=None,
@@ -142,6 +148,74 @@ class TestNoteFromText:
         data = resp.json()
         assert data["note_id"] == _NOTE_ID
         assert data["detected_subject"] == "mathematics"
+
+    def test_from_text_persists_ocr_image_urls(self, _auth_client):
+        """POST /notes/from-text must attach OCR-stored image URLs to the new note."""
+        fake_post_ocr = {
+            "structured_content": {
+                "title": "Calculus", "sections": [], "definitions": [],
+                "examples": [], "key_concepts": [], "formulas": [],
+            },
+            "detected_subject": "mathematics",
+            "subject_confidence": 0.9,
+            "summary": {"summary": "Intro to calculus."},
+            "quiz": None,
+            "flashcards": [],
+        }
+        created_note: dict = {}
+
+        async def fake_create_note(note_data):
+            created_note.update(note_data)
+            return _NOTE_ID
+
+        with (
+            patch(
+                "app.services.pipeline.pipeline._run_post_ocr_steps",
+                new_callable=AsyncMock,
+                return_value=fake_post_ocr,
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.create_note",
+                new=fake_create_note,
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_or_create_default_subjects",
+                new_callable=AsyncMock,
+                return_value=[{"id": "subj-math", "name": "Maths"}],
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_gridfs_file_owner",
+                new_callable=AsyncMock,
+                return_value=_USER_ID,
+            ),
+            patch(
+                "app.services.rag_service.rag_service.index_note",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_or_create_progress",
+                new_callable=AsyncMock,
+                return_value={"total_notes": 0},
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.update_progress",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            resp = _auth_client.post(
+                "/api/v1/notes/from-text",
+                json={
+                    "raw_text": "Calculus is the study of change.",
+                    "original_image_url": "/images/original-id",
+                    "processed_image_url": "/images/processed-id",
+                },
+            )
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert created_note["original_image_url"] == "/images/original-id"
+        assert created_note["processed_image_url"] == "/images/processed-id"
 
 
 # ---------------------------------------------------------------------------

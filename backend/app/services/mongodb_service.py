@@ -1131,6 +1131,33 @@ class MongoDBService:
         except NoFile:
             return None
 
+    async def get_gridfs_file_owner(self, file_id: str) -> str | None:
+        """Return the owner user_id for a GridFS file without downloading it."""
+        if self.db is None or not self._connected:
+            return None
+        try:
+            oid = ObjectId(file_id)
+        except InvalidId:
+            return None
+        doc = await self.db["fs.files"].find_one(
+            {"_id": oid},
+            {"metadata.user_id": 1},
+        )
+        if not doc:
+            return None
+        return (doc.get("metadata") or {}).get("user_id")
+
+    async def get_session_by_final_note_id(self, note_id: str) -> dict[str, Any] | None:
+        """Find a session that produced the given final note."""
+        collection = self._get_collection("sessions")
+        if collection is None:
+            return None
+        session = await collection.find_one({"final_note_id": note_id})
+        if session:
+            session["id"] = str(session.pop("_id"))
+            return _sanitize(session)
+        return None
+
     async def get_gridfs_files_for_note(self, note_id: str) -> list[dict]:
         """Query fs.files for all GridFS entries whose metadata.note_id matches.
 

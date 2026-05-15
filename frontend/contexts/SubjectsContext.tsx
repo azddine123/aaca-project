@@ -33,7 +33,8 @@ const SubjectsContext = createContext<SubjectsContextType>({
 });
 
 export function SubjectsProvider({ children }: { children: React.ReactNode }) {
-    const { token } = useAuth();
+    const { auth } = useAuth();
+    const token = auth.token;
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
