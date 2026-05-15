@@ -33,12 +33,15 @@ const storage = {
 };
 
 // Types
+export type PreferredLanguage = 'fr' | 'en' | 'ar';
+
 interface AuthState {
     token: string | null;
     refreshToken: string | null;
     isAuthenticated: boolean;
     userName: string | null;
     userEmail: string | null;
+    preferredLanguage: PreferredLanguage;
     loading: boolean;
     error: string | null;
 }
@@ -49,6 +52,7 @@ interface AuthContextType {
     logout: () => Promise<void>;
     authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
     updateUserName: (name: string) => Promise<void>;
+    updateUserLanguage: (language: PreferredLanguage) => Promise<void>;
 }
 
 // Context
@@ -59,6 +63,7 @@ const AuthContext = createContext<AuthContextType>({
         isAuthenticated: false,
         userName: null,
         userEmail: null,
+        preferredLanguage: 'fr',
         loading: true,
         error: null
     },
@@ -66,6 +71,7 @@ const AuthContext = createContext<AuthContextType>({
     logout: async () => {},
     authFetch: async (input, init) => fetch(input, init),
     updateUserName: async () => {},
+    updateUserLanguage: async () => {},
 });
 
 // Hook
@@ -79,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: false,
         userName: null, 
         userEmail: null, 
+        preferredLanguage: 'fr',
         loading: true, 
         error: null,
     });
@@ -90,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const token = await storage.getItem('aaca_token');
                 const userName = await storage.getItem('aaca_username');
                 const userEmail = await storage.getItem('aaca_email');
+                const preferredLanguage = await storage.getItem('aaca_preferred_language');
                 const refreshToken = await storage.getItem('aaca_refresh_token');
                 
                 if (token) {
@@ -99,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         isAuthenticated: true, 
                         userName, 
                         userEmail, 
+                        preferredLanguage: preferredLanguage === 'en' || preferredLanguage === 'ar' ? preferredLanguage : 'fr',
                         loading: false, 
                         error: null 
                     });
@@ -136,6 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 isAuthenticated: true,
                 userName: data.user?.full_name || email.split('@')[0],
                 userEmail: data.user?.email || email,
+                preferredLanguage: data.user?.preferred_language || 'fr',
                 loading: false,
                 error: null,
             };
@@ -144,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await storage.setItem('aaca_token', data.access_token);
             await storage.setItem('aaca_username', newAuth.userName || '');
             await storage.setItem('aaca_email', newAuth.userEmail || '');
+            await storage.setItem('aaca_preferred_language', newAuth.preferredLanguage);
             if (data.refresh_token) {
                 await storage.setItem('aaca_refresh_token', data.refresh_token);
             }
@@ -163,6 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await storage.deleteItem('aaca_token');
         await storage.deleteItem('aaca_username');
         await storage.deleteItem('aaca_email');
+        await storage.deleteItem('aaca_preferred_language');
         await storage.deleteItem('aaca_refresh_token');
 
         setAuth({
@@ -171,6 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isAuthenticated: false,
             userName: null,
             userEmail: null,
+            preferredLanguage: 'fr',
             loading: false,
             error: null
         });
@@ -220,8 +233,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await storage.setItem('aaca_username', name);
     };
 
+    const updateUserLanguage = async (language: PreferredLanguage) => {
+        setAuth(prev => ({ ...prev, preferredLanguage: language }));
+        await storage.setItem('aaca_preferred_language', language);
+    };
+
     return (
-        <AuthContext.Provider value={{ auth, login, logout, authFetch, updateUserName }}>
+        <AuthContext.Provider value={{ auth, login, logout, authFetch, updateUserName, updateUserLanguage }}>
             {children}
         </AuthContext.Provider>
     );

@@ -39,6 +39,7 @@ class RAGService:
         note_id: str | None = None,
         subject: str | None = None,
         top_k: int = 5,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Answer a question using relevant passages from the vector store.
 
@@ -79,10 +80,12 @@ class RAGService:
         context = self._build_context(chunks)
 
         # 4. Generate grounded answer
+        language_instruction = llm_service.get_language_instruction(target_language)
         system_prompt = (
             "Tu es un assistant pédagogique expert et rigoureux. "
             "Réponds à la question en te basant uniquement sur le contexte fourni. "
             "Si la réponse n'est pas dans le contexte, dis-le clairement.\n\n"
+            f"{language_instruction}\n\n"
             "RÈGLES DE FORMATAGE STRICTES :\n"
             "- Toute expression ou symbole mathématique, même simple (ex: x, α, n²), "
             "doit être écrit en LaTeX inline : \\(expression\\)\n"
@@ -118,6 +121,7 @@ class RAGService:
         note_id: str,
         num_cards: int = 10,
         difficulty: str = "intermediate",
+        target_language: str | None = None,
     ) -> list[dict[str, Any]]:
         """Generate flashcards from the most important chunks of a note.
 
@@ -140,7 +144,11 @@ class RAGService:
             return []
 
         context = self._build_context(chunks, max_chars=_MAX_CONTEXT_CHARS)
-        return await llm_service.generate_flashcards(context, num_cards=num_cards)
+        return await llm_service.generate_flashcards(
+            context,
+            num_cards=num_cards,
+            target_language=target_language,
+        )
 
     async def generate_quiz_rag(
         self,
@@ -148,6 +156,7 @@ class RAGService:
         note_id: str,
         num_questions: int = 5,
         difficulty: str = "intermediate",
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Generate a quiz from the most relevant sections of a note."""
         query_embedding = await embedding_service.embed_text(
@@ -168,6 +177,7 @@ class RAGService:
             context,
             num_questions=num_questions,
             difficulty=difficulty,
+            target_language=target_language,
         )
 
     async def semantic_search(

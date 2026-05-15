@@ -127,6 +127,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
             "email": user["email"],
             "full_name": user["full_name"],
             "cognitive_level": user.get("cognitive_level", "beginner"),
+            "preferred_language": user.get("preferred_language", "fr"),
         },
     }
 
@@ -331,12 +332,14 @@ async def process_image(
     if file.content_type not in ALLOWED_MIME:
         raise HTTPException(400, f"Unsupported file type: {file.content_type}")
 
+    target_language = await _get_user_content_language(current_user)
     options = {
         "perspective_correction": perspective_correction,
         "enhance_image": enhance_image,
         "subject_hint": subject_hint.value if subject_hint else None,
         "generate_summary": generate_summary,
         "generate_quiz": generate_quiz,
+        "target_language": target_language,
     }
 
     result = await pipeline.process_image(contents, options)
@@ -377,12 +380,14 @@ async def capture_and_process(
     if file.content_type not in ALLOWED_MIME:
         raise HTTPException(400, f"Unsupported file type: {file.content_type}")
 
+    target_language = await _get_user_content_language(current_user)
     options = {
         "perspective_correction": True,
         "enhance_image": True,
         "subject_hint": subject_hint.value if subject_hint else None,
         "generate_summary": True,
         "generate_quiz": True,
+        "target_language": target_language,
     }
 
     result = await pipeline.process_image(contents, options)
@@ -414,6 +419,7 @@ async def capture_and_process(
         "subject_source": subj_src,
         "tags": tags.split(",") if tags else [],
         "original_image_url": None,   # filled in after image upload
+        "content_language": target_language,
         "processed_content": result["structured_content"],
         "raw_text": result["raw_text"],
         "summary": result.get("summary", {}).get("summary", ""),
@@ -475,6 +481,7 @@ async def capture_and_process(
         quiz_data = result["quiz"]
         quiz_data["note_id"] = note_id
         quiz_data["user_id"] = current_user
+        quiz_data["content_language"] = target_language
         quiz_id = await mongodb_service.create_quiz(quiz_data)
         await mongodb_service.update_note(note_id, {"quizzes": [quiz_id]})
 
@@ -519,11 +526,13 @@ async def create_note_from_text(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Text cannot be empty")
 
     start_time = time.time()
+    target_language = await _get_user_content_language(current_user)
     options = {
         "subject_hint": data.subject_hint,
         "generate_summary": True,
         "generate_quiz": True,
         "generate_flashcards": True,
+        "target_language": target_language,
     }
     post_ocr = await pipeline._run_post_ocr_steps(data.raw_text, [], options, start_time)
 
@@ -550,6 +559,7 @@ async def create_note_from_text(
         "tags": [],
         "original_image_url": original_image_url,
         "processed_image_url": processed_image_url,
+        "content_language": target_language,
         "processed_content": post_ocr["structured_content"],
         "raw_text": data.raw_text,
         "summary": (post_ocr.get("summary") or {}).get("summary", ""),
@@ -575,6 +585,7 @@ async def create_note_from_text(
         quiz_data = post_ocr["quiz"]
         quiz_data["note_id"] = note_id
         quiz_data["user_id"] = current_user
+        quiz_data["content_language"] = target_language
         quiz_id = await mongodb_service.create_quiz(quiz_data)
         quiz_data.pop("_id", None)
         await mongodb_service.update_note(note_id, {"quizzes": [quiz_id]})
@@ -608,6 +619,12 @@ async def _get_owned_note(note_id: str, current_user: str) -> dict:
             detail="Note not found",
         )
     return note
+
+
+async def _get_user_content_language(current_user: str) -> str:
+    """Return the user's preferred generation language, defaulting to French."""
+    user = await mongodb_service.get_user(current_user)
+    return llm_service.normalize_language((user or {}).get("preferred_language"))
 
 
 async def _owned_image_url_or_none(url: str | None, current_user: str) -> str | None:
@@ -773,19 +790,23 @@ async def ask_note(
 ) -> dict:
     """Answer a question about a note using RAG (falls back to direct LLM)."""
     note = await _get_owned_note(note_id, current_user)
+    target_language = note.get("content_language") or await _get_user_content_language(current_user)
     try:
         return await rag_service.answer_question(
             user_id=current_user,
             question=body.question,
             note_id=note_id,
+            target_language=target_language,
         )
     except Exception:
+        language_instruction = llm_service.get_language_instruction(target_language)
         response = await llm_service._call_llm(
             prompt=f"Question: {body.question}\n\nContenu du cours:\n{note['raw_text'][:4000]}",
             system_prompt=(
                 "Tu es un assistant pédagogique expert et rigoureux. "
                 "Réponds à la question en te basant uniquement sur le contenu fourni. "
                 "Si la réponse n'est pas dans le contenu, dis-le clairement.\n\n"
+                f"{language_instruction}\n\n"
                 "RÈGLES DE FORMATAGE STRICTES :\n"
                 "- Toute expression ou symbole mathématique, même simple (ex: x, α, n²), "
                 "doit être écrit en LaTeX inline : \\(expression\\)\n"
@@ -881,15 +902,20 @@ async def generate_note_summary(
 ) -> SummaryResponse:
     """Generate a new summary for a note."""
     note = await _get_owned_note(note_id, current_user)
+    target_language = note.get("content_language") or await _get_user_content_language(current_user)
 
     summary_data = await llm_service.generate_summary(
         note["raw_text"],
         summary_type=request.summary_type,
         target_level=request.target_level or note.get("cognitive_level"),
         max_length=request.max_length,
+        target_language=target_language,
     )
 
-    await mongodb_service.update_note(note_id, {"summary": summary_data["summary"]})
+    await mongodb_service.update_note(note_id, {
+        "summary": summary_data["summary"],
+        "content_language": target_language,
+    })
 
     return SummaryResponse(
         content_id=note_id,
@@ -924,15 +950,18 @@ async def generate_quiz(
 ) -> dict:
     """Generate a new quiz for a note."""
     note = await _get_owned_note(note_id, current_user)
+    target_language = note.get("content_language") or await _get_user_content_language(current_user)
 
     quiz_data = await llm_service.generate_quiz(
         note["raw_text"],
         num_questions=num_questions,
         difficulty=difficulty.value,
+        target_language=target_language,
     )
 
     quiz_data["note_id"] = note_id
     quiz_data["user_id"] = current_user
+    quiz_data["content_language"] = target_language
 
     quiz_id = await mongodb_service.create_quiz(quiz_data)
     quiz_data.pop("_id", None)  # ObjectId ajouté par MongoDB, non sérialisable par Pydantic
@@ -1600,13 +1629,22 @@ async def finalize_session(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No captures in session")
 
     subject = session.get("subject")
-    structured = await llm_service.merge_captures_to_course(captures, subject)
+    target_language = await _get_user_content_language(current_user)
+    structured = await llm_service.merge_captures_to_course(
+        captures,
+        subject,
+        target_language=target_language,
+    )
 
     merged_text = "\n\n".join(
         (c.get("corrected_text") or c.get("raw_text") or "") for c in captures
     ).strip()
 
-    summary_data = await llm_service.generate_summary(merged_text, summary_type="detailed")
+    summary_data = await llm_service.generate_summary(
+        merged_text,
+        summary_type="detailed",
+        target_language=target_language,
+    )
 
     note_data: dict[str, Any] = {
         "user_id": current_user,
@@ -1614,6 +1652,7 @@ async def finalize_session(
         "title": session["title"] or structured.get("title", "Untitled"),
         "subject": structured.get("subject_category") or subject or "other",
         "tags": [],
+        "content_language": target_language,
         "processed_content": structured,
         "raw_text": merged_text,
         "summary": (summary_data or {}).get("summary", ""),
@@ -1626,10 +1665,15 @@ async def finalize_session(
     # Generate quiz (QCM only)
     quiz_id = None
     try:
-        quiz_data = await llm_service.generate_quiz(merged_text, quiz_types=["qcm"])
+        quiz_data = await llm_service.generate_quiz(
+            merged_text,
+            quiz_types=["qcm"],
+            target_language=target_language,
+        )
         if quiz_data.get("questions"):
             quiz_data["note_id"] = note_id
             quiz_data["user_id"] = current_user
+            quiz_data["content_language"] = target_language
             quiz_id = await mongodb_service.create_quiz(quiz_data)
             await mongodb_service.update_note(note_id, {"quizzes": [quiz_id]})
     except Exception as e:
@@ -1638,7 +1682,10 @@ async def finalize_session(
     # Generate flashcards
     flashcard_ids: list[str] = []
     try:
-        flashcards = await llm_service.generate_flashcards(merged_text)
+        flashcards = await llm_service.generate_flashcards(
+            merged_text,
+            target_language=target_language,
+        )
         if flashcards:
             flashcard_ids = await mongodb_service.create_flashcards(note_id, flashcards, current_user)
             await mongodb_service.update_note(note_id, {"flashcards": flashcard_ids})

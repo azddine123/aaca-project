@@ -72,6 +72,38 @@ class LLMService:
             return "anthropic"
         return "none"
 
+    @staticmethod
+    def normalize_language(language: str | None) -> str:
+        """Normalize app/user language values to a supported content language."""
+        if not language:
+            return "fr"
+        value = language.lower().strip()
+        aliases = {
+            "fr": "fr",
+            "francais": "fr",
+            "français": "fr",
+            "french": "fr",
+            "en": "en",
+            "eng": "en",
+            "english": "en",
+            "anglais": "en",
+            "ar": "ar",
+            "ara": "ar",
+            "arabic": "ar",
+            "arabe": "ar",
+        }
+        return aliases.get(value, "fr")
+
+    def get_language_instruction(self, language: str | None) -> str:
+        """Instruction reused by prompts so generated content follows user choice."""
+        normalized = self.normalize_language(language)
+        labels = {"fr": "French", "en": "English", "ar": "Arabic"}
+        return (
+            f"Output language: {labels[normalized]}. "
+            "All user-facing generated text must be written in this language. "
+            "Keep JSON keys, enum values, IDs, and LaTeX exactly in the required format."
+        )
+
     def _get_openai_client(self) -> Any:
         """Lazy load OpenAI client."""
         if self._openai_client is None and settings.OPENAI_API_KEY:
@@ -247,9 +279,11 @@ class LLMService:
         self,
         raw_text: str,
         subject_hint: str | None = None,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Structure raw text into academic format."""
-        system_prompt = """You are an expert academic content analyzer. Your task is to:
+        language_instruction = self.get_language_instruction(target_language)
+        system_prompt = f"""You are an expert academic content analyzer. Your task is to:
 1. Identify the main title of the content
 2. Extract sections with clear headings
 3. Identify definitions (term: definition format)
@@ -257,16 +291,18 @@ class LLMService:
 5. List key concepts
 6. Identify any mathematical formulas
 
+{language_instruction}
+
 Return the result as a valid JSON object with this exact structure:
-{
+{{
     "title": "string",
-    "sections": [{"title": "string", "content": "string"}],
-    "definitions": [{"term": "string", "definition": "string"}],
+    "sections": [{{"title": "string", "content": "string"}}],
+    "definitions": [{{"term": "string", "definition": "string"}}],
     "examples": ["string"],
     "key_concepts": ["string"],
-    "formulas": [{"latex": "string", "description": "string"}],
+    "formulas": [{{"latex": "string", "description": "string"}}],
     "subject_category": "mathematics|physics|chemistry|biology|computer_science|engineering|economics|literature|history|philosophy|other"
-}"""
+}}"""
 
         prompt = f"Analyze and structure this academic content:\n\n{raw_text[:4000]}"
         if subject_hint:
@@ -299,8 +335,10 @@ Return the result as a valid JSON object with this exact structure:
         summary_type: Literal["brief", "detailed", "bullet_points", "simplified"] = "detailed",
         target_level: str | None = None,
         max_length: int = 500,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Generate intelligent summary."""
+        language_instruction = self.get_language_instruction(target_language)
         type_instructions = {
             "brief": "Create a very concise summary in 2-3 sentences capturing the essence.",
             "detailed": "Create a comprehensive summary covering all key points.",
@@ -311,6 +349,7 @@ Return the result as a valid JSON object with this exact structure:
         system_prompt = f"""You are an expert summarizer. {type_instructions.get(summary_type, type_instructions["detailed"])}
 Target audience level: {target_level or "general"}
 Maximum length: {max_length} words.
+{language_instruction}
 
 Return JSON format:
 {{
@@ -341,13 +380,16 @@ Return JSON format:
         num_questions: int = 5,
         difficulty: str = "intermediate",
         quiz_types: list[str] | None = None,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Generate adaptive quiz from content."""
         quiz_types = quiz_types or ["qcm"]
+        language_instruction = self.get_language_instruction(target_language)
 
         system_prompt = f"""You are an expert quiz creator. Generate {num_questions} questions based on the provided content.
 Difficulty level: {difficulty}
 Question types to include: {', '.join(quiz_types)}
+{language_instruction}
 
 For each question:
 - QCM: provide 4 options with one correct answer
@@ -399,9 +441,13 @@ Return valid JSON:
         self,
         content: str,
         num_cards: int = 10,
+        target_language: str | None = None,
     ) -> list[dict[str, Any]]:
         """Generate flashcards from content."""
+        language_instruction = self.get_language_instruction(target_language)
         system_prompt = f"""Create {num_cards} flashcards from the provided content.
+{language_instruction}
+
 Each flashcard should have:
 - Front: A question, concept, or term
 - Back: The answer, explanation, or definition
@@ -501,6 +547,7 @@ Return JSON:
         self,
         captures: list[dict[str, Any]],
         subject: str | None = None,
+        target_language: str | None = None,
     ) -> dict[str, Any]:
         """Merge multiple OCR captures into a single coherent structured note.
 
@@ -525,23 +572,26 @@ Return JSON:
                 "subject_category": subject or "other",
             }
 
-        system_prompt = """You are an expert academic content editor. You receive several numbered captures
+        language_instruction = self.get_language_instruction(target_language)
+        system_prompt = f"""You are an expert academic content editor. You receive several numbered captures
 from the same lecture or course, written in order. Your task:
 1. Deduplicate repeated content across captures.
 2. Fix cross-capture continuations (e.g. a sentence split between captures).
 3. Organize the result into a coherent academic structure.
 4. Infer the main title from the content.
 
+{language_instruction}
+
 Return valid JSON with this exact structure:
-{
+{{
     "title": "string",
-    "sections": [{"title": "string", "content": "string"}],
-    "definitions": [{"term": "string", "definition": "string"}],
+    "sections": [{{"title": "string", "content": "string"}}],
+    "definitions": [{{"term": "string", "definition": "string"}}],
     "examples": ["string"],
     "key_concepts": ["string"],
-    "formulas": [{"latex": "string", "description": "string"}],
+    "formulas": [{{"latex": "string", "description": "string"}}],
     "subject_category": "mathematics|physics|chemistry|biology|computer_science|engineering|economics|literature|history|philosophy|other"
-}"""
+}}"""
 
         prompt = f"Merge and structure these course captures:\n\n{combined[:6000]}"
         if subject:
