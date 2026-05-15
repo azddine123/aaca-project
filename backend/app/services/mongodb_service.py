@@ -4,7 +4,7 @@ Replaces Firebase Firestore as the primary database.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -17,6 +17,33 @@ from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
 
 logger = logging.getLogger("aaca")
+
+# ── User subject defaults created on first use ────────────────────────────────
+_DEFAULT_SUBJECTS: list[dict] = [
+    {"name": "Maths",        "color": "#1B4FD8", "icon": "function-variant"},
+    {"name": "Informatique", "color": "#2563EB", "icon": "code-braces"},
+    {"name": "Physique",     "color": "#7C3AED", "icon": "atom"},
+    {"name": "Autre",        "color": "#6B7280", "icon": "file-document-outline"},
+    {"name": "À classer",   "color": "#F59E0B", "icon": "inbox-outline"},
+]
+
+# Map AI classifier output → default user subject name
+AI_SUBJECT_MAP: dict[str, str] = {
+    "mathematics":     "Maths",
+    "physics":         "Physique",
+    "chemistry":       "Physique",
+    "biology":         "Autre",
+    "computer_science":"Informatique",
+    "cs":              "Informatique",
+    "engineering":     "Informatique",
+    "economics":       "Autre",
+    "literature":      "Autre",
+    "history":         "Autre",
+    "philosophy":      "Autre",
+    "other":           "Autre",
+}
+
+LOW_CONFIDENCE_THRESHOLD = 0.35
 
 
 def _sanitize(doc: Any) -> Any:
@@ -85,6 +112,7 @@ class MongoDBService:
         await self.db.users.create_index("email", unique=True)
         await self.db.notes.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await self.db.notes.create_index("subject")
+        await self.db.notes.create_index("subject_id")
         await self.db.notes.create_index(
             [("title", "text"), ("raw_text", "text")],
             default_language="french",
@@ -95,6 +123,13 @@ class MongoDBService:
         await self.db.flashcards.create_index([("user_id", ASCENDING), ("next_review", ASCENDING)])
         await self.db.sessions.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await self.db.captures.create_index([("session_id", ASCENDING), ("order", ASCENDING)])
+        await self.db.subjects.create_index([("user_id", ASCENDING), ("created_at", ASCENDING)])
+        await self.db.password_reset_otps.create_index(
+            [("email", ASCENDING), ("expires_at", ASCENDING)]
+        )
+        await self.db.password_reset_otps.create_index(
+            "expires_at", expireAfterSeconds=0
+        )
         logger.info("✅ Index MongoDB créés")
 
     def _get_collection(self, name: str):
@@ -543,7 +578,7 @@ class MongoDBService:
             "subject_distribution": {},
             "weak_areas": [],
             "strengths": [],
-            "created_at": datetime.now(),
+            "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(),
         }
 
@@ -768,6 +803,10 @@ class MongoDBService:
         note_id: str,
         image_bytes: bytes,
         filename: str = "image.png",
+        *,
+        session_id: str | None = None,
+        capture_id: str | None = None,
+        image_type: str = "original",
     ) -> str:
         """Store image in GridFS and return a serving URL.
 
@@ -783,7 +822,14 @@ class MongoDBService:
                 file_id = await self.gridfs.upload_from_stream(
                     filename,
                     image_bytes,
-                    metadata={"user_id": user_id, "note_id": note_id, "contentType": content_type},
+                    metadata={
+                        "user_id": user_id,
+                        "note_id": note_id,
+                        "session_id": session_id,
+                        "capture_id": capture_id,
+                        "image_type": image_type,
+                        "contentType": content_type,
+                    },
                 )
                 return f"/images/{file_id}"
             except Exception as e:
@@ -815,6 +861,7 @@ class MongoDBService:
             return _sanitize(docs)
 
         result["notes"]             = await _fetch("notes",            {"user_id": user_id})
+        result["subjects"]          = await _fetch("subjects",         {"user_id": user_id})
         result["quizzes"]           = await _fetch("quizzes",          {"user_id": user_id})
         result["quiz_results"]      = await _fetch("quiz_results",     {"user_id": user_id})
         result["flashcards"]        = await _fetch("flashcards",       {"user_id": user_id})
@@ -886,6 +933,7 @@ class MongoDBService:
         counts["flashcards"] = await _del("flashcards", {"user_id": user_id})
         counts["quizzes"]    = await _del("quizzes",    {"user_id": user_id})
         counts["notes"]      = await _del("notes",      {"user_id": user_id})
+        counts["subjects"]   = await _del("subjects",   {"user_id": user_id})
         counts["sessions"]   = await _del("sessions",   {"user_id": user_id})
         counts["captures"]   = await _del("captures",   {"user_id": user_id})
         counts["user_progress"] = await _del("user_progress", {"user_id": user_id})
@@ -942,6 +990,125 @@ class MongoDBService:
 
         return counts
 
+    # ============== Subject Operations ==============
+
+    async def create_subject(self, user_id: str, data: dict[str, Any]) -> str:
+        """Create a user-owned subject."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            raise ServiceUnavailableError("MongoDB")
+        data = dict(data)
+        data["_id"] = ObjectId()
+        data["id"] = str(data["_id"])
+        data["user_id"] = user_id
+        data["created_at"] = datetime.now()
+        data["updated_at"] = datetime.now()
+        await collection.insert_one(data)
+        return data["id"]
+
+    async def get_subject(self, subject_id: str) -> dict[str, Any] | None:
+        """Get subject by ID."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            return None
+        try:
+            oid = ObjectId(subject_id)
+        except InvalidId:
+            return None
+        doc = await collection.find_one({"_id": oid})
+        if doc:
+            doc["id"] = str(doc.pop("_id"))
+            return _sanitize(doc)
+        return None
+
+    async def get_user_subjects(self, user_id: str) -> list[dict[str, Any]]:
+        """Get all subjects for a user ordered by creation date."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            return []
+        cursor = collection.find({"user_id": user_id}).sort("created_at", ASCENDING)
+        docs = await cursor.to_list(length=None)
+        result = []
+        for d in docs:
+            d["id"] = str(d.pop("_id"))
+            result.append(d)
+        return _sanitize(result)
+
+    async def get_user_subject_by_name(self, user_id: str, name: str) -> dict[str, Any] | None:
+        """Case-insensitive name lookup within a user's subjects."""
+        subjects = await self.get_user_subjects(user_id)
+        target = name.strip().lower()
+        for s in subjects:
+            if s["name"].strip().lower() == target:
+                return s
+        return None
+
+    async def get_or_create_default_subjects(self, user_id: str) -> list[dict[str, Any]]:
+        """Return user subjects, creating the 5 defaults if none exist yet."""
+        subjects = await self.get_user_subjects(user_id)
+        if subjects:
+            return subjects
+        for sdata in _DEFAULT_SUBJECTS:
+            try:
+                await self.create_subject(user_id, dict(sdata))
+            except Exception:
+                pass  # ignore concurrent creation
+        return await self.get_user_subjects(user_id)
+
+    async def update_subject(self, subject_id: str, update_data: dict[str, Any]) -> bool:
+        """Update a subject's fields."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            return False
+        try:
+            oid = ObjectId(subject_id)
+        except InvalidId:
+            return False
+        update_data["updated_at"] = datetime.now()
+        result = await collection.update_one({"_id": oid}, {"$set": update_data})
+        return result.modified_count > 0
+
+    async def delete_subject(self, subject_id: str) -> bool:
+        """Delete a subject document."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            return False
+        try:
+            oid = ObjectId(subject_id)
+        except InvalidId:
+            return False
+        result = await collection.delete_one({"_id": oid})
+        return result.deleted_count > 0
+
+    async def count_notes_by_subject_id(self, subject_id: str) -> int:
+        """Count notes referencing a given subject_id."""
+        collection = self._get_collection("notes")
+        if collection is None:
+            return 0
+        return await collection.count_documents({"subject_id": subject_id})
+
+    async def transfer_notes_subject(
+        self,
+        from_subject_id: str,
+        to_subject_id: str,
+        to_subject_name: str,
+        user_id: str,
+    ) -> int:
+        """Reassign notes from one subject to another (used before subject delete)."""
+        collection = self._get_collection("notes")
+        if collection is None:
+            return 0
+        result = await collection.update_many(
+            {"subject_id": from_subject_id, "user_id": user_id},
+            {"$set": {
+                "subject_id": to_subject_id,
+                "subject_name": to_subject_name,
+                "subject_source": "manual_changed",
+                "updated_at": datetime.now(),
+            }},
+        )
+        return result.modified_count
+
     async def get_image(self, file_id: str) -> tuple[bytes, str, str] | None:
         """Retrieve image bytes, content_type and owner user_id from GridFS.
 
@@ -963,6 +1130,116 @@ class MongoDBService:
             return data, content_type, owner_id
         except NoFile:
             return None
+
+    async def get_gridfs_files_for_note(self, note_id: str) -> list[dict]:
+        """Query fs.files for all GridFS entries whose metadata.note_id matches.
+
+        Returns a list of dicts with keys: file_id, image_type, filename.
+        Used as fallback when the note document lacks image URL fields.
+        """
+        if self.db is None or not self._connected:
+            return []
+        try:
+            cursor = self.db["fs.files"].find(
+                {"metadata.note_id": note_id},
+                {"_id": 1, "filename": 1, "metadata": 1},
+            )
+            results = []
+            async for doc in cursor:
+                results.append({
+                    "file_id": str(doc["_id"]),
+                    "image_type": doc.get("metadata", {}).get("image_type", "original"),
+                    "filename": doc.get("filename", "image"),
+                })
+            return results
+        except Exception as e:
+            logger.warning(f"GridFS files query failed: {e}")
+            return []
+
+    # ============== Password Reset OTP Operations ==============
+
+    async def create_password_reset_otp(
+        self,
+        email: str,
+        otp_hash: str,
+        otp_salt: str,
+        expires_at: datetime,
+    ) -> str:
+        """Invalidate any previous OTP for this email, then store the new one."""
+        collection = self._get_collection("password_reset_otps")
+        if collection is None:
+            raise ServiceUnavailableError("MongoDB")
+
+        # Mark all previous OTPs for this email as used
+        await collection.update_many(
+            {"email": email.lower(), "used": False},
+            {"$set": {"used": True}},
+        )
+
+        doc = {
+            "_id": ObjectId(),
+            "email": email.lower(),
+            "otp_hash": otp_hash,
+            "otp_salt": otp_salt,
+            "expires_at": expires_at,
+            "attempts": 0,
+            "used": False,
+            "created_at": datetime.now(timezone.utc),
+        }
+        doc["id"] = str(doc["_id"])
+        await collection.insert_one(doc)
+        return doc["id"]
+
+    async def get_valid_password_reset_otp(self, email: str) -> dict[str, Any] | None:
+        """Return the latest valid (not used, not expired, attempts < max) OTP for email."""
+        from app.core.config import settings as _settings
+        collection = self._get_collection("password_reset_otps")
+        if collection is None:
+            return None
+
+        doc = await collection.find_one(
+            {
+                "email": email.lower(),
+                "used": False,
+                "expires_at": {"$gt": datetime.now(timezone.utc)},
+                "attempts": {"$lt": _settings.PASSWORD_RESET_OTP_MAX_ATTEMPTS},
+            },
+            sort=[("created_at", DESCENDING)],
+        )
+        if doc:
+            doc["id"] = str(doc.pop("_id"))
+            return _sanitize(doc)
+        return None
+
+    async def increment_password_reset_attempts(self, otp_id: str) -> bool:
+        """Increment the failed-attempt counter for an OTP record."""
+        collection = self._get_collection("password_reset_otps")
+        if collection is None:
+            return False
+        try:
+            oid = ObjectId(otp_id)
+        except InvalidId:
+            return False
+        result = await collection.update_one(
+            {"_id": oid},
+            {"$inc": {"attempts": 1}},
+        )
+        return result.modified_count > 0
+
+    async def mark_password_reset_otp_used(self, otp_id: str) -> bool:
+        """Mark an OTP as used (consumed)."""
+        collection = self._get_collection("password_reset_otps")
+        if collection is None:
+            return False
+        try:
+            oid = ObjectId(otp_id)
+        except InvalidId:
+            return False
+        result = await collection.update_one(
+            {"_id": oid},
+            {"$set": {"used": True}},
+        )
+        return result.modified_count > 0
 
 
 mongodb_service = MongoDBService()

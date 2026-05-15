@@ -30,22 +30,29 @@ from app.models.schemas import (
     CourseSessionCreate,
     Flashcard,
     FlashcardReview,
+    ForgotPasswordRequest,
     Note,
     NoteListItem,
+    NoteSubjectUpdate,
     ProcessingResult,
     Quiz,
     QuizResult,
     QuizSubmission,
+    ResetPasswordRequest,
     SearchRequest,
     SearchResult,
     SessionStatus,
     SubjectCategory,
+    SubjectCreate,
+    SubjectOut,
+    SubjectUpdate,
     SummaryRequest,
     SummaryResponse,
     User,
     UserCreate,
     UserUpdateSchema,
     PasswordChangeSchema,
+    VerifyResetCodeRequest,
 )
 from app.services.adaptive_learning import adaptive_learning
 from app.services.llm_service import llm_service
@@ -130,6 +137,7 @@ class NoteFromTextRequest(BaseModel):
     raw_text: str
     title: str | None = None
     subject_hint: str | None = None
+    selected_subject_id: str | None = None  # explicit user subject choice
 
 class AskNoteRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
@@ -144,6 +152,97 @@ async def refresh_token_endpoint(body: RefreshRequest):
         raise HTTPException(401, "Invalid token payload")
     new_access = create_access_token({"sub": user_id})
     return {"access_token": new_access, "token_type": "bearer"}
+
+
+# ---------------------------------------------------------------------------
+# Password-reset helpers (OTP hashing — no bcrypt dependency)
+# ---------------------------------------------------------------------------
+
+import hashlib
+import secrets as _secrets
+from datetime import timedelta, timezone
+
+
+def _generate_otp() -> str:
+    return str(_secrets.randbelow(10 ** 6)).zfill(6)
+
+
+def _hash_otp(otp: str) -> tuple[str, str]:
+    """Return (salt, sha256_hex)."""
+    salt = _secrets.token_hex(16)
+    digest = hashlib.sha256(f"{salt}{otp}".encode()).hexdigest()
+    return salt, digest
+
+
+def _verify_otp(otp: str, salt: str, otp_hash: str) -> bool:
+    digest = hashlib.sha256(f"{salt}{otp}".encode()).hexdigest()
+    return _secrets.compare_digest(digest, otp_hash)
+
+
+_RESET_NEUTRAL = "Si un compte existe avec cet email, un code de vérification a été envoyé."
+_RESET_CODE_ERR = "Code invalide ou expiré."
+
+
+@router.post("/auth/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, body: ForgotPasswordRequest) -> dict:
+    """Initiate password reset — always returns a neutral message."""
+    from app.services.email_service import send_password_reset_otp
+
+    user = await mongodb_service.get_user_by_email(body.email)
+    if user:
+        otp = _generate_otp()
+        salt, otp_hash = _hash_otp(otp)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.PASSWORD_RESET_OTP_EXPIRE_MINUTES
+        )
+        await mongodb_service.create_password_reset_otp(
+            email=body.email,
+            otp_hash=otp_hash,
+            otp_salt=salt,
+            expires_at=expires_at,
+        )
+        send_password_reset_otp(body.email, otp)
+
+    return {"message": _RESET_NEUTRAL}
+
+
+@router.post("/auth/verify-reset-code")
+@limiter.limit("5/minute")
+async def verify_reset_code(request: Request, body: VerifyResetCodeRequest) -> dict:
+    """Verify the OTP code — returns verified:true or raises 400."""
+    record = await mongodb_service.get_valid_password_reset_otp(body.email)
+    if not record:
+        raise HTTPException(status_code=400, detail=_RESET_CODE_ERR)
+
+    if not _verify_otp(body.code, record["otp_salt"], record["otp_hash"]):
+        await mongodb_service.increment_password_reset_attempts(record["id"])
+        raise HTTPException(status_code=400, detail=_RESET_CODE_ERR)
+
+    return {"verified": True}
+
+
+@router.post("/auth/reset-password")
+@limiter.limit("3/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest) -> dict:
+    """Reset password after OTP verification."""
+    record = await mongodb_service.get_valid_password_reset_otp(body.email)
+    if not record:
+        raise HTTPException(status_code=400, detail=_RESET_CODE_ERR)
+
+    if not _verify_otp(body.code, record["otp_salt"], record["otp_hash"]):
+        await mongodb_service.increment_password_reset_attempts(record["id"])
+        raise HTTPException(status_code=400, detail=_RESET_CODE_ERR)
+
+    user = await mongodb_service.get_user_by_email(body.email)
+    if not user:
+        raise HTTPException(status_code=400, detail=_RESET_CODE_ERR)
+
+    new_hash = get_password_hash(body.new_password)
+    await mongodb_service.update_user(user["id"], {"password_hash": new_hash})
+    await mongodb_service.mark_password_reset_otp_used(record["id"])
+
+    return {"message": "Mot de passe réinitialisé avec succès."}
 
 
 # =============================================================================
@@ -266,11 +365,25 @@ async def capture_and_process(
             detail=result.get("error", "Processing failed"),
         )
 
+    # Resolve user-owned subject from AI classification
+    subj_id, subj_name, subj_src = await _resolve_user_subject(
+        result["detected_subject"], result["subject_confidence"], current_user
+    )
+    # If caller provided an explicit subject hint as a user subject_id, honour it
+    if subject_hint:
+        hint_subj = await mongodb_service.get_user_subject_by_name(current_user, subject_hint.value)
+        if hint_subj:
+            subj_id, subj_name, subj_src = hint_subj["id"], hint_subj["name"], "user_selected"
+
     # Create note first to get a real note_id
     note_data = {
         "user_id": current_user,
         "title": title or result["structured_content"].get("title", "Untitled Note"),
         "subject": result["detected_subject"],
+        "subject_id": subj_id,
+        "subject_name": subj_name,
+        "subject_confidence": result["subject_confidence"],
+        "subject_source": subj_src,
         "tags": tags.split(",") if tags else [],
         "original_image_url": None,   # filled in after image upload
         "processed_content": result["structured_content"],
@@ -287,14 +400,32 @@ async def capture_and_process(
 
     note_id = await mongodb_service.create_note(note_data)
 
-    # Save image with real note_id in GridFS metadata
+    # Save original image with real note_id in GridFS metadata
     image_url = await mongodb_service.upload_image(
         current_user,
         note_id,
         contents,
         file.filename or "capture.png",
+        image_type="original",
     )
-    await mongodb_service.update_note(note_id, {"original_image_url": image_url})
+    # Save preprocessed (OCR-optimised) image
+    processed_bytes = result.get("processed_image_bytes")
+    processed_url: str | None = None
+    if processed_bytes:
+        try:
+            processed_url = await mongodb_service.upload_image(
+                current_user,
+                note_id,
+                processed_bytes,
+                f"processed_{file.filename or 'capture.png'}",
+                image_type="processed",
+            )
+        except Exception as _e:
+            logger.warning(f"Processed image upload failed: {_e}")
+    await mongodb_service.update_note(note_id, {
+        "original_image_url": image_url,
+        "processed_image_url": processed_url,
+    })
 
     if result.get("corrected_text", "").strip():
         try:
@@ -368,10 +499,23 @@ async def create_note_from_text(
     }
     post_ocr = await pipeline._run_post_ocr_steps(data.raw_text, [], options, start_time)
 
+    # Resolve user-owned subject (or use explicit selection)
+    subj_id, subj_name, subj_src = await _resolve_user_subject(
+        post_ocr["detected_subject"], post_ocr["subject_confidence"], current_user
+    )
+    if data.selected_subject_id:
+        explicit = await mongodb_service.get_subject(data.selected_subject_id)
+        if explicit and explicit["user_id"] == current_user:
+            subj_id, subj_name, subj_src = explicit["id"], explicit["name"], "user_selected"
+
     note_data: dict[str, Any] = {
         "user_id": current_user,
         "title": data.title or post_ocr["structured_content"].get("title", "Untitled"),
         "subject": post_ocr["detected_subject"],
+        "subject_id": subj_id,
+        "subject_name": subj_name,
+        "subject_confidence": post_ocr["subject_confidence"],
+        "subject_source": subj_src,
         "tags": [],
         "processed_content": post_ocr["structured_content"],
         "raw_text": data.raw_text,
@@ -455,6 +599,9 @@ async def list_notes(
             preview=n["raw_text"][:200] + "..." if len(n["raw_text"]) > 200 else n["raw_text"],
             created_at=n["created_at"],
             thumbnail_url=n.get("original_image_url"),
+            subject_id=n.get("subject_id"),
+            subject_name=n.get("subject_name"),
+            subject_source=n.get("subject_source"),
         )
         for n in notes
     ]
@@ -468,6 +615,92 @@ async def get_note(
     """Get a specific note by ID."""
     note = await _get_owned_note(note_id, current_user)
     return Note(**note)
+
+
+@router.get("/notes/{note_id}/images")
+async def get_note_images(
+    note_id: str,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Return all images associated with a note (original + processed).
+
+    For a single-capture note returns type='single'.
+    For a session note returns type='session' with one entry per capture per image_type.
+    """
+    note = await _get_owned_note(note_id, current_user)
+    session_id: str | None = note.get("session_id")
+
+    if not session_id:
+        images: list[dict] = []
+        orig = note.get("original_image_url")
+        proc = note.get("processed_image_url")
+        if orig:
+            images.append({"label": "Image originale", "image_type": "original", "url": orig, "order": 0})
+        if proc:
+            images.append({"label": "Image traitée", "image_type": "processed", "url": proc, "order": 0})
+
+        # Fallback: note predates URL fields — query GridFS directly by note_id
+        if not images:
+            gridfs_files = await mongodb_service.get_gridfs_files_for_note(note_id)
+            for f in gridfs_files:
+                img_type = f["image_type"]
+                label = "Image originale" if img_type == "original" else "Image traitée (OCR)"
+                images.append({
+                    "label": label,
+                    "image_type": img_type,
+                    "url": f"/images/{f['file_id']}",
+                    "order": 0,
+                })
+            images.sort(key=lambda x: 0 if x["image_type"] == "original" else 1)
+
+        return {"type": "single", "images": images}
+
+    # Session note — verify session ownership before exposing captures
+    session = await mongodb_service.get_session(session_id)
+    if not session or session["user_id"] != current_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    captures = await mongodb_service.get_session_captures(session_id)
+    captures.sort(key=lambda c: c.get("order", 0))
+
+    images = []
+    for cap in captures:
+        order = cap.get("order", 0)
+        cap_id = cap.get("id")
+        orig = cap.get("original_image_url") or cap.get("image_url")
+        proc = cap.get("processed_image_url")
+        if orig:
+            images.append({
+                "capture_id": cap_id,
+                "order": order,
+                "label": f"Capture {order + 1} — originale",
+                "image_type": "original",
+                "url": orig,
+            })
+        if proc:
+            images.append({
+                "capture_id": cap_id,
+                "order": order,
+                "label": f"Capture {order + 1} — traitée",
+                "image_type": "processed",
+                "url": proc,
+            })
+
+    # Fallback for session captures that predate URL fields
+    if not images:
+        gridfs_files = await mongodb_service.get_gridfs_files_for_note(note_id)
+        for f in gridfs_files:
+            img_type = f["image_type"]
+            label = "Image originale" if img_type == "original" else "Image traitée (OCR)"
+            images.append({
+                "label": label,
+                "image_type": img_type,
+                "url": f"/images/{f['file_id']}",
+                "order": 0,
+            })
+        images.sort(key=lambda x: 0 if x["image_type"] == "original" else 1)
+
+    return {"type": "session", "session_id": session_id, "images": images}
 
 
 @router.post("/notes/{note_id}/ask")
@@ -532,7 +765,7 @@ async def delete_note(
     except Exception as e:
         logger.warning(f"RAG remove_note failed: {e}")
 
-    # 5. Delete image from GridFS if applicable
+    # 5. Delete original image from GridFS if applicable
     image_url: str | None = note.get("original_image_url")
     if image_url and image_url.startswith("/images/"):
         file_id = image_url.removeprefix("/images/")
@@ -540,6 +773,14 @@ async def delete_note(
             await mongodb_service.delete_image_from_gridfs(file_id)
         except Exception as e:
             logger.warning(f"GridFS image delete failed: {e}")
+
+    # 5b. Delete processed image from GridFS
+    proc_image_url: str | None = note.get("processed_image_url")
+    if proc_image_url and proc_image_url.startswith("/images/"):
+        try:
+            await mongodb_service.delete_image_from_gridfs(proc_image_url.removeprefix("/images/"))
+        except Exception as e:
+            logger.warning(f"GridFS processed image delete failed: {e}")
 
     # 6. If note belongs to a session, clear the session's final_note_id
     session_id: str | None = note.get("session_id")
@@ -852,6 +1093,9 @@ async def search_notes(
                 preview=r["raw_text"][:200] + "..." if len(r["raw_text"]) > 200 else r["raw_text"],
                 created_at=r["created_at"],
                 thumbnail_url=r.get("original_image_url"),
+                subject_id=r.get("subject_id"),
+                subject_name=r.get("subject_name"),
+                subject_source=r.get("subject_source"),
             )
             for r in results
         ],
@@ -940,17 +1184,160 @@ async def get_recommendations(current_user: str = Depends(get_current_user)) -> 
 
 
 # =============================================================================
-# Utility Routes
+# Subject Routes  (user-owned subject management)
 # =============================================================================
 
-@router.get("/subjects")
-async def get_subjects() -> dict:
-    """Get available subject categories."""
+async def _resolve_user_subject(
+    detected_subject: str,
+    confidence: float,
+    user_id: str,
+) -> tuple[str | None, str | None, str]:
+    """Map an AI-detected subject to a user-owned Subject document.
+
+    Returns (subject_id, subject_name, subject_source).
+    """
+    from app.services.mongodb_service import AI_SUBJECT_MAP, LOW_CONFIDENCE_THRESHOLD
+    user_subjects = await mongodb_service.get_or_create_default_subjects(user_id)
+    by_name: dict[str, dict] = {s["name"].lower(): s for s in user_subjects}
+
+    # Low confidence or unknown → "À classer"
+    if confidence < LOW_CONFIDENCE_THRESHOLD or detected_subject == "other":
+        unclass = by_name.get("à classer")
+        if unclass:
+            return unclass["id"], unclass["name"], "unclassified"
+
+    # Map AI category to default user subject name
+    target = AI_SUBJECT_MAP.get(detected_subject, "Autre").lower()
+    match = by_name.get(target)
+    if match:
+        return match["id"], match["name"], "ai_suggested"
+
+    # Fallback: "Autre"
+    autre = by_name.get("autre")
+    if autre:
+        return autre["id"], autre["name"], "ai_suggested"
+
+    if user_subjects:
+        s = user_subjects[0]
+        return s["id"], s["name"], "ai_suggested"
+
+    return None, None, "unclassified"
+
+
+@router.get("/subjects", response_model=list[SubjectOut])
+async def list_user_subjects(
+    current_user: str = Depends(get_current_user),
+) -> list[SubjectOut]:
+    """Return the authenticated user's subjects (creates defaults on first call)."""
+    subjects = await mongodb_service.get_or_create_default_subjects(current_user)
+    return [SubjectOut(**s) for s in subjects]
+
+
+@router.post("/subjects", response_model=SubjectOut, status_code=status.HTTP_201_CREATED)
+async def create_subject(
+    data: SubjectCreate,
+    current_user: str = Depends(get_current_user),
+) -> SubjectOut:
+    """Create a new subject for the authenticated user."""
+    existing = await mongodb_service.get_user_subject_by_name(current_user, data.name)
+    if existing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Une matière nommée '{data.name}' existe déjà.",
+        )
+    subject_id = await mongodb_service.create_subject(current_user, data.model_dump())
+    subject = await mongodb_service.get_subject(subject_id)
+    return SubjectOut(**subject)
+
+
+@router.patch("/subjects/{subject_id}", response_model=SubjectOut)
+async def update_subject(
+    subject_id: str,
+    data: SubjectUpdate,
+    current_user: str = Depends(get_current_user),
+) -> SubjectOut:
+    """Update a subject's name, color, or icon."""
+    subject = await mongodb_service.get_subject(subject_id)
+    if not subject or subject["user_id"] != current_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Matière non trouvée.")
+
+    update_fields = data.model_dump(exclude_none=True)
+    if not update_fields:
+        return SubjectOut(**subject)
+
+    if "name" in update_fields and update_fields["name"].lower() != subject["name"].lower():
+        existing = await mongodb_service.get_user_subject_by_name(current_user, update_fields["name"])
+        if existing:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Une matière nommée '{update_fields['name']}' existe déjà.",
+            )
+
+    await mongodb_service.update_subject(subject_id, update_fields)
+    updated = await mongodb_service.get_subject(subject_id)
+    return SubjectOut(**updated)
+
+
+@router.delete("/subjects/{subject_id}")
+async def delete_subject(
+    subject_id: str,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a subject; notes using it are moved to 'À classer'."""
+    subject = await mongodb_service.get_subject(subject_id)
+    if not subject or subject["user_id"] != current_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Matière non trouvée.")
+
+    if subject["name"].lower() == "à classer":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "La matière 'À classer' ne peut pas être supprimée.",
+        )
+
+    # Ensure "À classer" exists as the transfer target
+    unclass = await mongodb_service.get_user_subject_by_name(current_user, "À classer")
+    if not unclass:
+        unclass_id = await mongodb_service.create_subject(
+            current_user, {"name": "À classer", "color": "#F59E0B", "icon": "inbox-outline"}
+        )
+        unclass = await mongodb_service.get_subject(unclass_id)
+
+    transferred = await mongodb_service.transfer_notes_subject(
+        from_subject_id=subject_id,
+        to_subject_id=unclass["id"],
+        to_subject_name=unclass["name"],
+        user_id=current_user,
+    )
+    await mongodb_service.delete_subject(subject_id)
+
+    return {"deleted": True, "notes_transferred": transferred}
+
+
+@router.patch("/notes/{note_id}/subject")
+async def change_note_subject(
+    note_id: str,
+    data: NoteSubjectUpdate,
+    current_user: str = Depends(get_current_user),
+) -> dict:
+    """Change the subject of a note (manual re-classification)."""
+    await _get_owned_note(note_id, current_user)
+
+    subject = await mongodb_service.get_subject(data.subject_id)
+    if not subject or subject["user_id"] != current_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Matière non trouvée.")
+
+    await mongodb_service.update_note(note_id, {
+        "subject_id": subject["id"],
+        "subject_name": subject["name"],
+        "subject_source": "manual_changed",
+        "subject_confidence": 1.0,
+    })
+
     return {
-        "subjects": [
-            {"id": s.value, "name": s.value.replace("_", " ").title()}
-            for s in SubjectCategory
-        ]
+        "note_id": note_id,
+        "subject_id": subject["id"],
+        "subject_name": subject["name"],
+        "subject_source": "manual_changed",
     }
 
 
@@ -1032,16 +1419,27 @@ async def add_capture(
     )
     ocr_result = await _ocr.extract_text(processed, detect_formulas=True)
 
-    image_url = await mongodb_service.upload_image(
-        current_user, session_id, contents, file.filename or "capture.png"
+    original_url = await mongodb_service.upload_image(
+        current_user, session_id, contents, file.filename or "capture.png",
+        session_id=session_id, image_type="original",
     )
+    capture_processed_url: str | None = None
+    try:
+        capture_processed_url = await mongodb_service.upload_image(
+            current_user, session_id, processed, f"processed_{file.filename or 'capture.png'}",
+            session_id=session_id, image_type="processed",
+        )
+    except Exception as _e:
+        logger.warning(f"Processed capture image upload failed: {_e}")
 
     order = len(session.get("capture_ids", []))
     capture_data = {
         "session_id": session_id,
         "user_id": current_user,
         "order": order,
-        "image_url": image_url,
+        "image_url": original_url,            # backward compat
+        "original_image_url": original_url,
+        "processed_image_url": capture_processed_url,
         "raw_text": ocr_result.get("text", ""),
         "corrected_text": ocr_result.get("text", ""),
         "confidence": ocr_result.get("average_confidence", 0.0),
@@ -1098,6 +1496,22 @@ async def delete_capture(
     deleted = await mongodb_service.delete_capture(capture_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+
+    # Delete capture images from GridFS
+    for url_key in ("original_image_url", "image_url"):
+        orig_url = capture.get(url_key)
+        if orig_url and orig_url.startswith("/images/"):
+            try:
+                await mongodb_service.delete_image_from_gridfs(orig_url.removeprefix("/images/"))
+            except Exception as _e:
+                logger.warning(f"GridFS original image delete failed for capture: {_e}")
+            break
+    proc_url = capture.get("processed_image_url")
+    if proc_url and proc_url.startswith("/images/"):
+        try:
+            await mongodb_service.delete_image_from_gridfs(proc_url.removeprefix("/images/"))
+        except Exception as _e:
+            logger.warning(f"GridFS processed image delete failed for capture: {_e}")
 
     # Remove capture_id from session.capture_ids
     new_ids = [cid for cid in session.get("capture_ids", []) if cid != capture_id]

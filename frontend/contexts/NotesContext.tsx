@@ -38,8 +38,16 @@ export interface Note {
     summary?: string;
     created_at: string;
     thumbnail_url?: string;
+    original_image_url?: string;
+    processed_image_url?: string;
+    session_id?: string;
     processed_content?: StructuredContent;
     latex_formulas?: { latex: string; description?: string }[];
+    // User-owned subject system
+    subject_id?: string;
+    subject_name?: string;
+    subject_source?: string;
+    subject_confidence?: number;
 }
 
 interface NotesContextType {

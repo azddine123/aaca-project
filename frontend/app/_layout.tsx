@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { NotesProvider } from '@/contexts/NotesContext';
 import { StudyProvider } from '@/contexts/StudyContext';
+import { SubjectsProvider } from '@/contexts/SubjectsContext';
 import AppearanceProvider from '@/contexts/AppearanceContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -11,6 +12,7 @@ export default function RootLayout() {
             <AppearanceProvider>
                 <AuthProvider>
                     <NotesProvider>
+                        <SubjectsProvider>
                         <StudyProvider>
                             <Stack screenOptions={{ headerShown: false }}>
                                 <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -30,6 +32,7 @@ export default function RootLayout() {
                                 />
                             </Stack>
                         </StudyProvider>
+                        </SubjectsProvider>
                     </NotesProvider>
                 </AuthProvider>
             </AppearanceProvider>

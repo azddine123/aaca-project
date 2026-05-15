@@ -2,14 +2,16 @@ import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import {
     View, Text, StyleSheet, ScrollView,
     TouchableOpacity, ActivityIndicator, Alert,
-    TextInput, KeyboardAvoidingView, Platform,
+    TextInput, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotes } from '@/contexts/NotesContext';
 import { useStudy } from '@/contexts/StudyContext';
+import { useSubjects } from '@/contexts/SubjectsContext';
 import NoteContentView from '@/components/NoteContentView';
 import AssistantMessage from '@/components/AssistantMessage';
 import { AacaCard, StatusBadge, SubjectBadge } from '@/components/UIKit';
@@ -21,8 +23,21 @@ import { SIZES, SHADOWS, SUBJECT_COLORS, SUBJECT_LABELS } from '@/theme';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-type Tab = 'resume' | 'contenu' | 'etudier' | 'assistant';
+type Tab = 'resume' | 'contenu' | 'images' | 'etudier' | 'assistant';
 interface QAMessage { role: 'user' | 'assistant'; text: string; }
+
+interface NoteImage {
+    label: string;
+    image_type: 'original' | 'processed';
+    url: string;
+    order: number;
+    capture_id?: string;
+}
+interface NoteImagesData {
+    type: 'single' | 'session';
+    session_id?: string;
+    images: NoteImage[];
+}
 
 const QA_SUGGESTIONS = [
     'Résume ce cours',
@@ -34,6 +49,7 @@ const QA_SUGGESTIONS = [
 const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'resume',    label: 'Résumé',    icon: 'text-box-outline' },
     { key: 'contenu',   label: 'Contenu',   icon: 'file-document-outline' },
+    { key: 'images',    label: 'Images',    icon: 'image-outline' },
     { key: 'etudier',   label: 'Étudier',   icon: 'school-outline' },
     { key: 'assistant', label: 'Assistant', icon: 'robot-outline' },
 ];
@@ -43,6 +59,7 @@ export default function NoteDetailScreen() {
     const { currentNote, fetchNote, isLoading } = useNotes();
     const { setCurrentQuiz, setCurrentFlashcards } = useStudy();
     const { auth, authFetch } = useAuth();
+    const { subjects, fetchSubjects, changeNoteSubject } = useSubjects();
     const C = useAppColors();
     const G = useAppGradients();
     const insets = useSafeAreaInsets();
@@ -51,6 +68,11 @@ export default function NoteDetailScreen() {
     const [activeTab, setActiveTab] = useState<Tab>('resume');
     const [loadingQuiz, setLoadingQuiz] = useState(false);
     const [loadingCards, setLoadingCards] = useState(false);
+    const [noteImages, setNoteImages] = useState<NoteImagesData | null>(null);
+    const [imagesLoading, setImagesLoading] = useState(false);
+    const [imagesFetched, setImagesFetched] = useState(false);
+    const [subjectModal, setSubjectModal] = useState(false);
+    const [subjectChanging, setSubjectChanging] = useState(false);
 
     // Q&A assistant state
     const [qaMessages, setQaMessages] = useState<QAMessage[]>([]);
@@ -59,6 +81,41 @@ export default function NoteDetailScreen() {
     const qaScrollRef = useRef<ScrollView>(null);
 
     useEffect(() => { if (id) fetchNote(id); }, [id, fetchNote]);
+    useEffect(() => { fetchSubjects(); }, []);
+
+    const handleChangeSubject = useCallback(async (subjectId: string) => {
+        if (!id) return;
+        setSubjectChanging(true);
+        try {
+            await changeNoteSubject(id, subjectId);
+            setSubjectModal(false);
+            fetchNote(id);
+        } catch (e: unknown) {
+            Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible de changer la matière');
+        } finally {
+            setSubjectChanging(false);
+        }
+    }, [id, changeNoteSubject, fetchNote]);
+
+    // Reset images state when the note changes
+    useEffect(() => {
+        setNoteImages(null);
+        setImagesFetched(false);
+    }, [id]);
+
+    useEffect(() => {
+        if (activeTab === 'images' && id && !imagesFetched && !imagesLoading) {
+            setImagesLoading(true);
+            authFetch(`${API_URL}/notes/${id}/images`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setNoteImages(data); })
+                .catch(() => {})
+                .finally(() => {
+                    setImagesLoading(false);
+                    setImagesFetched(true);
+                });
+        }
+    }, [activeTab, id, imagesFetched, imagesLoading, authFetch]);
 
     const sendMessage = useCallback(async (q: string) => {
         if (!q || qaLoading || !id) return;
@@ -160,9 +217,17 @@ export default function NoteDetailScreen() {
             <View style={styles.titleBlock}>
                 <View style={styles.metaRow}>
                     <SubjectBadge
-                        label={SUBJECT_LABELS[currentNote.subject] || currentNote.subject || 'Général'}
+                        label={currentNote.subject_name || SUBJECT_LABELS[currentNote.subject] || currentNote.subject || 'Général'}
                         color={subjectColor}
                     />
+                    <TouchableOpacity
+                        style={[styles.changeSubjectBtn, { borderColor: C.border, backgroundColor: C.surfaceMid }]}
+                        onPress={() => setSubjectModal(true)}
+                        activeOpacity={0.75}
+                    >
+                        <MaterialCommunityIcons name="pencil-outline" size={12} color={C.textMuted} />
+                        <Text style={[styles.changeSubjectText, { color: C.textMuted }]}>Changer</Text>
+                    </TouchableOpacity>
                     {createdAt ? (
                         <View style={styles.datePill}>
                             <MaterialCommunityIcons name="calendar-outline" size={12} color={C.textMuted} />
@@ -264,6 +329,99 @@ export default function NoteDetailScreen() {
                             latex_formulas={(currentNote as any).latex_formulas}
                             C={C}
                         />
+                    )}
+
+                    {/* IMAGES */}
+                    {activeTab === 'images' && (
+                        imagesLoading ? (
+                            <View style={styles.emptyTab}>
+                                <ActivityIndicator size="large" color={C.primary} />
+                            </View>
+                        ) : !noteImages || noteImages.images.length === 0 ? (
+                            <View style={styles.emptyTab}>
+                                <MaterialCommunityIcons name="image-off-outline" size={44} color={C.textMuted} />
+                                <Text style={{ fontSize: SIZES.fontSm, color: C.textSecondary, textAlign: 'center', marginTop: SIZES.xs }}>
+                                    Aucune image disponible pour cette note.
+                                </Text>
+                            </View>
+                        ) : noteImages.type === 'single' ? (
+                            <View style={{ gap: SIZES.lg }}>
+                                {noteImages.images.map(img => (
+                                    <View key={img.image_type} style={[styles.imgCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                                        <View style={styles.imgCardHeader}>
+                                            <MaterialCommunityIcons
+                                                name={img.image_type === 'original' ? 'image-outline' : 'image-filter-center-focus-strong-outline'}
+                                                size={14}
+                                                color={img.image_type === 'original' ? C.primary : C.accent}
+                                            />
+                                            <Text style={[styles.imgCardLabel, { color: img.image_type === 'original' ? C.primary : C.accent }]}>
+                                                {img.label}
+                                            </Text>
+                                        </View>
+                                        <Image
+                                            source={{
+                                                uri: img.url.startsWith('/')
+                                                    ? `${API_URL.replace(/\/api\/v\d+$/, '')}${img.url}`
+                                                    : img.url,
+                                                headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
+                                            }}
+                                            style={styles.imgFull}
+                                            contentFit="contain"
+                                            placeholderContentFit="contain"
+                                            transition={300}
+                                        />
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={{ gap: SIZES.xl }}>
+                                {(() => {
+                                    const groups: Record<number, NoteImage[]> = {};
+                                    for (const img of noteImages.images) {
+                                        if (!groups[img.order]) groups[img.order] = [];
+                                        groups[img.order].push(img);
+                                    }
+                                    return Object.entries(groups)
+                                        .sort(([a], [b]) => Number(a) - Number(b))
+                                        .map(([orderStr, imgs]) => (
+                                            <View key={orderStr}>
+                                                <View style={styles.sectionTitleRow}>
+                                                    <MaterialCommunityIcons name="camera-outline" size={14} color={C.primary} />
+                                                    <Text style={styles.sectionTitle}>Capture {Number(orderStr) + 1}</Text>
+                                                </View>
+                                                <View style={{ gap: SIZES.md }}>
+                                                    {imgs.map(img => (
+                                                        <View key={img.image_type} style={[styles.imgCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                                                            <View style={styles.imgCardHeader}>
+                                                                <MaterialCommunityIcons
+                                                                    name={img.image_type === 'original' ? 'image-outline' : 'image-filter-center-focus-strong-outline'}
+                                                                    size={13}
+                                                                    color={img.image_type === 'original' ? C.primary : C.accent}
+                                                                />
+                                                                <Text style={[styles.imgCardLabel, { color: img.image_type === 'original' ? C.primary : C.accent }]}>
+                                                                    {img.image_type === 'original' ? 'Originale' : 'Traitée (OCR)'}
+                                                                </Text>
+                                                            </View>
+                                                            <Image
+                                                                source={{
+                                                                    uri: img.url.startsWith('/')
+                                                                        ? `${API_URL.replace(/\/api\/v\d+$/, '')}${img.url}`
+                                                                        : img.url,
+                                                                    headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
+                                                                }}
+                                                                style={styles.imgFull}
+                                                                contentFit="contain"
+                                                                placeholderContentFit="contain"
+                                                                transition={300}
+                                                            />
+                                                        </View>
+                                                    ))}
+                                                </View>
+                                            </View>
+                                        ));
+                                })()}
+                            </View>
+                        )
                     )}
 
                     {/* ÉTUDIER */}
@@ -499,6 +657,11 @@ const makeStyles = (C: any, topInset: number) => StyleSheet.create({
 
     infoNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, padding: SIZES.md, borderRadius: SIZES.borderRadiusSm, marginTop: SIZES.sm, borderWidth: 1 },
     infoNoteText: { flex: 1, fontSize: SIZES.fontXs, lineHeight: 17 },
+
+    imgCard: { borderRadius: SIZES.borderRadius, borderWidth: 1, overflow: 'hidden', ...SHADOWS.sm },
+    imgCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm },
+    imgCardLabel: { fontSize: SIZES.fontXs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+    imgFull: { width: '100%', height: 260 },
 
     emptyTab: { alignItems: 'center', gap: SIZES.sm, paddingTop: SIZES.xxxl },
     assistantEmptyIcon: { width: 60, height: 60, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.xs },
