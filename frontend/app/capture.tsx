@@ -104,6 +104,7 @@ export default function CaptureScreen() {
     const [result, setResult] = useState<ProcessResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
     const [aiStep, setAiStep] = useState(0);
+    const [understood, setUnderstood] = useState(false);
 
     useEffect(() => {
         if (step !== 'processing') { setAiStep(0); return; }
@@ -187,7 +188,7 @@ export default function CaptureScreen() {
         }
     };
 
-    const reset = () => { setStep('idle'); setPreview(null); setRawText(''); setResult(null); setErrorMsg(''); };
+    const reset = () => { setStep('idle'); setPreview(null); setRawText(''); setResult(null); setErrorMsg(''); setUnderstood(false); };
     const isWorking = step === 'ocr' || step === 'processing';
 
     return (
@@ -234,6 +235,18 @@ export default function CaptureScreen() {
                             </View>
                             <StatusBadge label="À corriger" tone="warning" />
                         </View>
+
+                        {/* ── Bloc 1 : Vérification requise ── */}
+                        <View style={[styles.infoBlock, { backgroundColor: C.warning + '14', borderColor: C.warning + '50' }]}>
+                            <MaterialCommunityIcons name="alert-circle-outline" size={18} color={C.warning} style={{ marginTop: 1 }} />
+                            <View style={styles.infoBlockCopy}>
+                                <Text style={[styles.infoBlockTitle, { color: C.warning }]}>Vérification requise</Text>
+                                <Text style={[styles.infoBlockBody, { color: C.textSecondary }]}>
+                                    {'Le texte extrait automatiquement peut contenir des erreurs, surtout si l\'image est floue, manuscrite ou mal cadrée. Relisez et corrigez le contenu avant de générer le résumé, les quiz et les flashcards.'}
+                                </Text>
+                            </View>
+                        </View>
+
                         {preview ? (
                             <Image source={{ uri: preview }} style={styles.reviewThumb} resizeMode="cover" />
                         ) : null}
@@ -246,13 +259,45 @@ export default function CaptureScreen() {
                             placeholder="Le texte extrait apparaîtra ici..."
                             placeholderTextColor={C.textMuted}
                         />
+
+                        {/* ── Bloc 2 : Contenu généré par IA ── */}
+                        <View style={[styles.infoBlock, { backgroundColor: C.primary + '10', borderColor: C.primary + '40' }]}>
+                            <MaterialCommunityIcons name="robot-outline" size={18} color={C.primary} style={{ marginTop: 1 }} />
+                            <View style={styles.infoBlockCopy}>
+                                <Text style={[styles.infoBlockTitle, { color: C.primary }]}>Contenu généré par IA</Text>
+                                <Text style={[styles.infoBlockBody, { color: C.textSecondary }]}>
+                                    {'Les résumés, quiz et flashcards sont générés automatiquement à partir de vos notes. Ils peuvent contenir des imprécisions. Vérifiez toujours les informations importantes avec votre cours original.'}
+                                </Text>
+                            </View>
+                        </View>
+
+                        {/* ── Case à cocher de confirmation ── */}
+                        <TouchableOpacity
+                            style={styles.consentRow}
+                            onPress={() => setUnderstood(v => !v)}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[
+                                styles.checkbox,
+                                { borderColor: understood ? C.primary : C.border },
+                                understood && { backgroundColor: C.primary },
+                            ]}>
+                                {understood && (
+                                    <MaterialCommunityIcons name="check" size={13} color="#fff" />
+                                )}
+                            </View>
+                            <Text style={[styles.consentText, { color: C.textSecondary }]}>
+                                {"J'ai vérifié le texte extrait et je comprends que le contenu IA peut contenir des erreurs."}
+                            </Text>
+                        </TouchableOpacity>
+
                         <View style={styles.reviewActions}>
                             <AacaButton label="Annuler" icon="close" variant="ghost" onPress={reset} full />
                             <AacaButton
                                 label="Générer"
                                 icon="brain"
                                 onPress={createNote}
-                                disabled={!rawText.trim()}
+                                disabled={!rawText.trim() || !understood}
                                 full
                             />
                         </View>
@@ -442,6 +487,35 @@ const makeStyles = (C: any, topInset: number) => StyleSheet.create({
         minHeight: 250,
     },
     reviewActions: { flexDirection: 'row', gap: SIZES.sm },
+
+    infoBlock: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: SIZES.sm,
+        borderRadius: SIZES.borderRadius,
+        borderWidth: 1,
+        padding: SIZES.md,
+    },
+    infoBlockCopy: { flex: 1 },
+    infoBlockTitle: { fontSize: SIZES.fontSm, fontWeight: '700', marginBottom: 3 },
+    infoBlockBody: { fontSize: SIZES.fontXs, lineHeight: 18 },
+
+    consentRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: SIZES.sm,
+    },
+    checkbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 5,
+        borderWidth: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 1,
+        flexShrink: 0,
+    },
+    consentText: { flex: 1, fontSize: SIZES.fontXs, lineHeight: 19 },
 
     previewWrapper: {
         flex: 1,
