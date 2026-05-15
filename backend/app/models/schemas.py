@@ -262,6 +262,7 @@ class Note(NoteBase):
     user_id: str
     session_id: str | None = None          # set when note comes from a CourseSession
     original_image_url: str | None = None  # None for text-only or multi-image notes
+    processed_image_url: str | None = None  # preprocessed/OCR-optimized version
     processed_content: StructuredContent
     raw_text: str
     summary: str | None = None
@@ -272,6 +273,11 @@ class Note(NoteBase):
     updated_at: datetime
     cognitive_level: CognitiveLevel
     processing_metadata: dict[str, Any] = {}
+    # Extended subject fields (user-owned subject system)
+    subject_id: str | None = None
+    subject_name: str | None = None
+    subject_source: str | None = None
+    subject_confidence: float | None = None
 
 
 class NoteListItem(BaseModel):
@@ -282,6 +288,10 @@ class NoteListItem(BaseModel):
     preview: str
     created_at: datetime
     thumbnail_url: str | None = None
+    # Extended subject fields
+    subject_id: str | None = None
+    subject_name: str | None = None
+    subject_source: str | None = None
 
 
 # =============================================================================
@@ -358,7 +368,9 @@ class Capture(BaseModel):
     session_id: str
     user_id: str
     order: int
-    image_url: str | None = None
+    image_url: str | None = None           # kept for backward compatibility
+    original_image_url: str | None = None  # original capture bytes
+    processed_image_url: str | None = None  # after preprocessing / OCR optimisation
     raw_text: str = ""
     corrected_text: str = ""
     confidence: float = 0.0
@@ -369,3 +381,56 @@ class Capture(BaseModel):
 class CaptureUpdate(BaseModel):
     """Payload to update the corrected text of a capture."""
     corrected_text: str
+
+
+# =============================================================================
+# User Subject Models
+# =============================================================================
+
+class SubjectCreate(BaseModel):
+    """Create a new user-owned subject."""
+    name: str = Field(..., min_length=1, max_length=80)
+    color: str = Field("#6B7280", pattern=r"^#[0-9a-fA-F]{6}$")
+    icon: str = Field("book-outline", max_length=60)
+
+
+class SubjectUpdate(BaseModel):
+    """Partially update a user subject."""
+    name: str | None = Field(None, min_length=1, max_length=80)
+    color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    icon: str | None = Field(None, max_length=60)
+
+
+class SubjectOut(BaseModel):
+    """API representation of a user subject."""
+    id: str
+    user_id: str
+    name: str
+    color: str
+    icon: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteSubjectUpdate(BaseModel):
+    """Payload to change the subject of a note."""
+    subject_id: str
+
+
+# =============================================================================
+# Password Reset / Forgot-Password Models
+# =============================================================================
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(..., min_length=8, max_length=128)

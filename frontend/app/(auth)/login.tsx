@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity,
     StyleSheet, KeyboardAvoidingView, Platform,
     ActivityIndicator, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors, useAppGradients, useAppearance } from '@/contexts/AppearanceContext';
@@ -18,6 +18,8 @@ export default function LoginScreen() {
     const G = useAppGradients();
     const { isDark } = useAppearance();
     const styles = useMemo(() => makeStyles(C), [C]);
+    const params = useLocalSearchParams<{ resetSuccess?: string }>();
+    const [resetBanner, setResetBanner] = useState(params.resetSuccess === '1');
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -62,6 +64,13 @@ export default function LoginScreen() {
             <View style={styles.card}>
                 <Text style={styles.formTitle}>Connexion</Text>
                 <Text style={styles.formSub}>Bon retour ! Continuez là où vous vous êtes arrêté.</Text>
+
+                {resetBanner ? (
+                    <View style={styles.successBox}>
+                        <MaterialCommunityIcons name="check-circle-outline" size={16} color={C.success} />
+                        <Text style={styles.successText}>Mot de passe réinitialisé. Vous pouvez vous connecter.</Text>
+                    </View>
+                ) : null}
 
                 {error ? (
                     <View style={styles.errorBox}>
@@ -130,7 +139,12 @@ export default function LoginScreen() {
                     </LinearGradient>
                 </TouchableOpacity>
 
-                {/* Link */}
+                {/* Forgot password */}
+                <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')} style={styles.forgotRow}>
+                    <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
+                </TouchableOpacity>
+
+                {/* Register link */}
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')} style={styles.linkRow}>
                     <Text style={styles.linkText}>Pas encore de compte ? </Text>
                     <Text style={styles.linkHighlight}>Créer un compte</Text>
@@ -153,6 +167,9 @@ const makeStyles = (C: any) => StyleSheet.create({
     errorBox: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, backgroundColor: C.error + '18', borderRadius: SIZES.borderRadiusSm, padding: SIZES.sm, borderWidth: 1, borderColor: C.error + '40' },
     errorText: { flex: 1, color: C.error, fontSize: SIZES.fontSm, lineHeight: 18 },
 
+    successBox: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, backgroundColor: C.success + '18', borderRadius: SIZES.borderRadiusSm, padding: SIZES.sm, borderWidth: 1, borderColor: C.success + '40' },
+    successText: { flex: 1, color: C.success, fontSize: SIZES.fontSm, lineHeight: 18 },
+
     fieldGroup: { gap: 6 },
     fieldLabel: { fontSize: SIZES.fontXs, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8, paddingLeft: 2 },
 
@@ -164,6 +181,9 @@ const makeStyles = (C: any) => StyleSheet.create({
     submitDisabled: { opacity: 0.6 },
     submitGrad: { height: 52, justifyContent: 'center', alignItems: 'center' },
     submitText: { color: '#fff', fontSize: SIZES.fontMd, fontWeight: '700' },
+
+    forgotRow: { alignItems: 'flex-end', marginTop: -SIZES.xs },
+    forgotText: { fontSize: SIZES.fontSm, color: C.primary, fontWeight: '600' },
 
     linkRow: { flexDirection: 'row', justifyContent: 'center', paddingTop: SIZES.xs },
     linkText: { ...FONTS.body2, color: C.textSecondary },

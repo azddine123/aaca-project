@@ -122,6 +122,7 @@ class ProcessingPipeline:
                 "summary": post_ocr_result["summary"],
                 "quiz": post_ocr_result["quiz"],
                 "flashcards": post_ocr_result["flashcards"],
+                "processed_image_bytes": processed_image,
             })
 
             logger.info(f"✅ Pipeline completed in {processing_time:.2f}s")

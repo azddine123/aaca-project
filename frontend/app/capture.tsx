@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
+import { useSubjects } from '@/contexts/SubjectsContext';
 import { useAppColors } from '@/contexts/AppearanceContext';
 import { AacaButton, AacaCard, StatusBadge } from '@/components/UIKit';
 import { ZelligePattern } from '@/components/ZelligePattern';
@@ -94,6 +95,7 @@ function ScannerFrame({ C }: { C: any }) {
 export default function CaptureScreen() {
     const { authFetch } = useAuth();
     const { fetchNotes } = useNotes();
+    const { subjects, fetchSubjects } = useSubjects();
     const C = useAppColors();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(C, insets.top), [C, insets.top]);
@@ -105,6 +107,9 @@ export default function CaptureScreen() {
     const [errorMsg, setErrorMsg] = useState('');
     const [aiStep, setAiStep] = useState(0);
     const [understood, setUnderstood] = useState(false);
+    const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+
+    useEffect(() => { fetchSubjects(); }, []);
 
     useEffect(() => {
         if (step !== 'processing') { setAiStep(0); return; }
@@ -138,10 +143,12 @@ export default function CaptureScreen() {
         }
         setStep('processing');
         try {
+            const body: Record<string, unknown> = { raw_text: rawText };
+            if (selectedSubjectId) body.selected_subject_id = selectedSubjectId;
             const res = await authFetch(`${API_URL}/notes/from-text`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ raw_text: rawText }),
+                body: JSON.stringify(body),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
@@ -188,7 +195,7 @@ export default function CaptureScreen() {
         }
     };
 
-    const reset = () => { setStep('idle'); setPreview(null); setRawText(''); setResult(null); setErrorMsg(''); setUnderstood(false); };
+    const reset = () => { setStep('idle'); setPreview(null); setRawText(''); setResult(null); setErrorMsg(''); setUnderstood(false); setSelectedSubjectId(null); };
     const isWorking = step === 'ocr' || step === 'processing';
 
     return (
@@ -259,6 +266,29 @@ export default function CaptureScreen() {
                             placeholder="Le texte extrait apparaîtra ici..."
                             placeholderTextColor={C.textMuted}
                         />
+
+                        {/* ── Sélection de la matière ── */}
+                        {subjects.length > 0 && (
+                            <View style={styles.subjectSection}>
+                                <Text style={[styles.subjectLabel, { color: C.textSecondary }]}>Matière</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectPills}>
+                                    {subjects.map(s => {
+                                        const active = selectedSubjectId === s.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={s.id}
+                                                style={[styles.pill, { borderColor: active ? s.color : C.border, backgroundColor: active ? s.color + '22' : C.surfaceMid }]}
+                                                onPress={() => setSelectedSubjectId(active ? null : s.id)}
+                                                activeOpacity={0.7}
+                                            >
+                                                <MaterialCommunityIcons name={s.icon as any} size={13} color={active ? s.color : C.textMuted} />
+                                                <Text style={[styles.pillText, { color: active ? s.color : C.textSecondary, fontWeight: active ? '700' : '400' }]}>{s.name}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
+                        )}
 
                         {/* ── Bloc 2 : Contenu généré par IA ── */}
                         <View style={[styles.infoBlock, { backgroundColor: C.primary + '10', borderColor: C.primary + '40' }]}>
@@ -562,4 +592,18 @@ const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     errorText: { color: C.error, flex: 1, fontSize: SIZES.fontXs, lineHeight: 18, fontWeight: '600' },
 
     actionsRow: { flexDirection: 'row', gap: SIZES.md, paddingHorizontal: SIZES.xl, paddingBottom: SIZES.xxl },
+
+    subjectSection: { gap: 6 },
+    subjectLabel: { fontSize: SIZES.fontXs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    subjectPills: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
+    pill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+        borderWidth: 1.5,
+    },
+    pillText: { fontSize: SIZES.fontXs },
 });

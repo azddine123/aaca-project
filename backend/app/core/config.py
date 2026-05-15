@@ -56,6 +56,19 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # OpenAI embedding model
     VECTOR_STORE_DIR: str = "vector_store"            # ChromaDB persistence directory
 
+    # Email / SMTP (optional — if not set, OTP is only logged in dev mode)
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str | None = None
+    SMTP_FROM_NAME: str = "PicLearn"
+    SMTP_USE_TLS: bool = True
+
+    # Password reset OTP
+    PASSWORD_RESET_OTP_EXPIRE_MINUTES: int = 10
+    PASSWORD_RESET_OTP_MAX_ATTEMPTS: int = 5
+
     # RGPD / Privacy
     DATA_RETENTION_DAYS: int = 365
     IMAGE_RETENTION_DAYS: int = 90
