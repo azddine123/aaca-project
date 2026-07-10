@@ -4,6 +4,15 @@
 node_modules/
 package-lock.json
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+
+# Expo
+.expo/
+
 # OS Files
 .DS_Store
 Thumbs.db
