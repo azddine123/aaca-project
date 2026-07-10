@@ -51,8 +51,38 @@ def _build_reset_message(to_email: str, otp: str) -> MIMEMultipart:
     return msg
 
 
-def send_password_reset_otp(email: str, otp: str) -> bool:
-    """Send a password-reset OTP email.
+def _build_verification_message(to_email: str, otp: str) -> MIMEMultipart:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Confirmez votre adresse email — PicLearn"
+    msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+    msg["To"] = to_email
+
+    expire_min = settings.PASSWORD_RESET_OTP_EXPIRE_MINUTES
+    plain = (
+        f"Bienvenue sur PicLearn !\n"
+        f"Votre code de confirmation est : {otp}\n"
+        f"Ce code expire dans {expire_min} minutes.\n"
+        "Si vous n'avez pas créé de compte, ignorez cet email."
+    )
+    html = f"""\
+<html><body style="font-family:sans-serif;color:#222;max-width:480px;margin:auto">
+  <h2 style="color:#2563EB">Bienvenue sur PicLearn 🎓</h2>
+  <p>Pour activer votre compte, saisissez ce code de confirmation :</p>
+  <p style="font-size:2rem;font-weight:bold;letter-spacing:0.25em;color:#1B4FD8">{otp}</p>
+  <p>Ce code expire dans <strong>{expire_min} minutes</strong>.</p>
+  <hr style="border:none;border-top:1px solid #eee">
+  <p style="font-size:.85rem;color:#888">
+    Si vous n'avez pas créé de compte, ignorez cet email.
+  </p>
+</body></html>"""
+
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+    return msg
+
+
+def _deliver(email: str, msg: MIMEMultipart, kind: str, otp: str) -> bool:
+    """Send a prepared message over SMTP.
 
     Returns True when the email was sent (or logged in dev mode),
     False on SMTP error. Never raises.
@@ -63,11 +93,10 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
                 "📧 [DEV] SMTP not configured — OTP for %s: %s", email, otp
             )
         else:
-            logger.warning("📧 SMTP not configured — password reset email NOT sent to %s", email)
+            logger.warning("📧 SMTP not configured — %s email NOT sent to %s", kind, email)
         return True  # treat as success so the flow continues
 
     try:
-        msg = _build_reset_message(email, otp)
         context = ssl.create_default_context()
 
         if settings.SMTP_USE_TLS:
@@ -81,8 +110,18 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_FROM_EMAIL, email, msg.as_string())
 
-        logger.info("📧 Password-reset OTP sent to %s", email)
+        logger.info("📧 %s OTP sent to %s", kind, email)
         return True
     except Exception as exc:
-        logger.error("📧 Failed to send password-reset email to %s: %s", email, exc)
+        logger.error("📧 Failed to send %s email to %s: %s", kind, email, exc)
         return False
+
+
+def send_password_reset_otp(email: str, otp: str) -> bool:
+    """Send a password-reset OTP email."""
+    return _deliver(email, _build_reset_message(email, otp), "password-reset", otp)
+
+
+def send_email_verification_otp(email: str, otp: str) -> bool:
+    """Send an account email-verification OTP email."""
+    return _deliver(email, _build_verification_message(email, otp), "email-verification", otp)

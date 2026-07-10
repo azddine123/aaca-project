@@ -176,7 +176,7 @@ class TestResetPassword:
             patch("app.api.routes.mongodb_service.get_user_by_email", new=AsyncMock(return_value=fake_user)),
             patch("app.api.routes.mongodb_service.update_user", new=AsyncMock(return_value=True)) as mock_update,
             patch("app.api.routes.mongodb_service.mark_password_reset_otp_used", new=AsyncMock(return_value=True)),
-            patch("app.api.routes.get_password_hash", return_value="new_hashed_pw"),
+            patch("app.api.routers.auth.get_password_hash", return_value="new_hashed_pw"),
         ):
             res = client.post("/api/v1/auth/reset-password", json={
                 "email": "user@example.com",

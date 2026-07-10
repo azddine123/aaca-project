@@ -50,11 +50,9 @@ class TestTokenOperations:
 
     def test_password_hashing(self):
         """Test password hashing and verification"""
-        password = "testpassword123"
-        hashed = verify_password(password, verify_password.__wrapped__(password, get_password_hash(password)) or "")
-        
-        # Actually test properly
         from app.core.security import get_password_hash
+
+        password = "testpassword123"
         hashed = get_password_hash(password)
         assert hashed != password
         assert verify_password(password, hashed) is True
@@ -73,18 +71,19 @@ class TestTokenOperations:
 
     def test_token_expiration(self):
         """Test token expiration"""
-        import time
-        from datetime import timedelta
+        from datetime import timedelta, timezone
         from jose import jwt
         from app.core.config import settings
-        
-        # Create expired token
+
+        # jose truncates "exp" to whole seconds, so a token that merely
+        # expires "now" can still pass validation depending on where in the
+        # current second the test runs. Back-date it by a full second instead
+        # of relying on time.sleep() to cross a second boundary.
         token = jwt.encode(
-            {"sub": "test-user", "exp": datetime.utcnow(), "type": "access"},
+            {"sub": "test-user", "exp": datetime.now(timezone.utc) - timedelta(seconds=1), "type": "access"},
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM
         )
-        
-        time.sleep(0.1)
+
         decoded = decode_token(token)
         assert decoded is None

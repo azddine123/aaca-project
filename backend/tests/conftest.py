@@ -181,14 +181,25 @@ def test_flashcard_data():
 
 
 @pytest.fixture
+def mock_image_processor():
+    """Mock image processor — the real preprocess() decodes actual image
+    bytes (cv2/PIL) and would raise on the fake test payload."""
+    with patch('app.services.image_processor.image_processor') as mock:
+        mock.preprocess = AsyncMock(return_value=(b"processed_bytes", {"width": 100, "height": 100}))
+        yield mock
+
+
+@pytest.fixture
 def mock_ocr_service():
     """Mock OCR service"""
     with patch('app.services.ocr_service.ocr_service') as mock:
-        mock.extract_text.return_value = {
+        # extract_text is async — plain MagicMock attributes return the value
+        # directly (not a coroutine), so `await` on them raises TypeError.
+        mock.extract_text = AsyncMock(return_value={
             "text": "Test extracted text",
             "average_confidence": 0.95,
             "engine": "easyocr"
-        }
+        })
         yield mock
 
 
@@ -196,13 +207,13 @@ def mock_ocr_service():
 def mock_llm_service():
     """Mock LLM service"""
     with patch('app.services.llm_service.llm_service') as mock:
-        mock.structure_content.return_value = {
+        mock.structure_content = AsyncMock(return_value={
             "title": "Test Title",
             "sections": [{"heading": "Section 1", "content": "Content"}],
             "key_concepts": ["Concept 1"],
-        }
-        mock.generate_summary.return_value = {
+        })
+        mock.generate_summary = AsyncMock(return_value={
             "summary": "Test summary",
             "key_points": ["Point 1"],
-        }
+        })
         yield mock

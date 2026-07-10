@@ -255,7 +255,7 @@ class TestMongoDBDisconnectedMode:
             ),
             # Skip real bcrypt hashing (passlib/bcrypt has Python 3.13 compat issues)
             patch(
-                "app.api.routes.get_password_hash",
+                "app.api.routers.auth.get_password_hash",
                 return_value="hashed_password",
             ),
             patch(
@@ -301,6 +301,16 @@ class TestMongoDBDisconnectedMode:
                 new_callable=AsyncMock,
                 return_value=fake_pipeline_result,
             ),
+            # capture_and_process resolves a user-owned subject before
+            # create_note; without this mock it hits the real MongoDB client
+            # (bound to a different event loop than this TestClient's) and
+            # raises a cross-loop RuntimeError instead of exercising the 503
+            # path this test targets.
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_or_create_default_subjects",
+                new_callable=AsyncMock,
+                return_value=[{"id": "subj-1", "name": "Autre"}],
+            ),
             patch(
                 "app.services.mongodb_service.mongodb_service.upload_image",
                 new_callable=AsyncMock,
@@ -312,7 +322,13 @@ class TestMongoDBDisconnectedMode:
                 side_effect=ServiceUnavailableError("MongoDB"),
             ),
         ):
-            fake_image = b"\x89PNG\r\n" + b"\x00" * 50
+            # Real PNG bytes — uploads are now validated with Pillow (magic
+            # bytes), so a truncated fake would be rejected with 400 before
+            # ever reaching the MongoDB write that raises 503.
+            from PIL import Image as _Image
+            _buf = io.BytesIO()
+            _Image.new("RGB", (8, 8), (10, 20, 30)).save(_buf, format="PNG")
+            fake_image = _buf.getvalue()
             response = _auth_client.post(
                 "/api/v1/process/capture",
                 files={"file": ("photo.png", io.BytesIO(fake_image), "image/png")},

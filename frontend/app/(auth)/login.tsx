@@ -40,6 +40,14 @@ export default function LoginScreen() {
             await login(email.trim(), password);
             router.replace('/(tabs)/home');
         } catch (err: any) {
+            if (err.status === 403) {
+                // Email non vérifié — le backend vient de renvoyer un nouveau code
+                router.replace({
+                    pathname: '/(auth)/verify-email',
+                    params: { email: email.trim().toLowerCase() },
+                });
+                return;
+            }
             setError(err.message || 'Email ou mot de passe incorrect.');
         } finally {
             setLoading(false);

@@ -6,7 +6,8 @@ Supports multiple providers: OpenAI, Google, Anthropic.
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta
+from collections import OrderedDict
+from datetime import datetime
 from typing import Any, Literal
 
 from app.core.config import settings
@@ -15,11 +16,12 @@ logger = logging.getLogger("aaca")
 
 
 class LLMCache:
-    """Simple in-memory cache for LLM responses."""
+    """Bounded in-memory LRU cache for LLM responses (TTL + max entries)."""
 
-    def __init__(self, ttl: int = 3600) -> None:
-        self.cache: dict[str, dict[str, Any]] = {}
+    def __init__(self, ttl: int = 3600, max_entries: int = 256) -> None:
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.ttl = ttl
+        self.max_entries = max_entries
 
     @staticmethod
     def _generate_key(key_data: str) -> str:
@@ -34,14 +36,15 @@ class LLMCache:
         key = self._generate_key(cache_key)
         if key in self.cache:
             entry = self.cache[key]
-            if (datetime.now() - entry["timestamp"]).seconds < self.ttl:
+            if (datetime.now() - entry["timestamp"]).total_seconds() < self.ttl:
+                self.cache.move_to_end(key)
                 logger.info("🎯 Cache hit for prompt")
                 return entry["response"]
             del self.cache[key]
         return None
 
     def set(self, cache_key: str, response: dict) -> None:
-        """Cache a response."""
+        """Cache a response, evicting the least recently used past the bound."""
         if not settings.ENABLE_LLM_CACHE:
             return
 
@@ -50,6 +53,9 @@ class LLMCache:
             "response": response,
             "timestamp": datetime.now(),
         }
+        self.cache.move_to_end(key)
+        while len(self.cache) > self.max_entries:
+            self.cache.popitem(last=False)
 
 
 class LLMService:

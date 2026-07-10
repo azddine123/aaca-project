@@ -13,7 +13,7 @@ This service is used for:
 """
 
 import logging
-from typing import Any, Literal
+from typing import Any
 
 from app.services.embedding_service import embedding_service
 from app.services.llm_service import llm_service

@@ -336,16 +336,12 @@ class TestDueFlashcardsLimit:
 
 class TestStatsSubjectDistribution:
     def test_computes_distribution_from_notes_when_progress_empty(self, _auth_client):
-        """When progress.subject_distribution is {}, compute from notes."""
-        notes = [
-            {"subject": "mathematics", "raw_text": "a"},
-            {"subject": "mathematics", "raw_text": "b"},
-            {"subject": "physics",     "raw_text": "c"},
-        ]
+        """When progress.subject_distribution is {}, use the notes aggregation."""
         with (
             patch("app.services.mongodb_service.mongodb_service.get_or_create_progress", new_callable=AsyncMock, return_value={"subject_distribution": {}, "study_streak": 0}),
-            patch("app.services.mongodb_service.mongodb_service.get_user_notes", new_callable=AsyncMock, return_value=notes),
-            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_results", new_callable=AsyncMock, return_value=[]),
+            patch("app.services.mongodb_service.mongodb_service.count_user_notes", new_callable=AsyncMock, return_value=3),
+            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_stats", new_callable=AsyncMock, return_value={"count": 0, "average_score": 0.0}),
+            patch("app.services.mongodb_service.mongodb_service.get_user_subject_distribution", new_callable=AsyncMock, return_value={"mathematics": 2, "physics": 1}),
             patch("app.services.mongodb_service.mongodb_service.count_flashcards", new_callable=AsyncMock, return_value=0),
         ):
             resp = _auth_client.get("/api/v1/stats")
@@ -360,8 +356,9 @@ class TestStatsSubjectDistribution:
         progress = {"subject_distribution": {"chemistry": 5, "biology": 3}, "study_streak": 1}
         with (
             patch("app.services.mongodb_service.mongodb_service.get_or_create_progress", new_callable=AsyncMock, return_value=progress),
-            patch("app.services.mongodb_service.mongodb_service.get_user_notes", new_callable=AsyncMock, return_value=[]),
-            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_results", new_callable=AsyncMock, return_value=[]),
+            patch("app.services.mongodb_service.mongodb_service.count_user_notes", new_callable=AsyncMock, return_value=0),
+            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_stats", new_callable=AsyncMock, return_value={"count": 0, "average_score": 0.0}),
+            patch("app.services.mongodb_service.mongodb_service.get_user_subject_distribution", new_callable=AsyncMock, return_value={"should-not": 99}),
             patch("app.services.mongodb_service.mongodb_service.count_flashcards", new_callable=AsyncMock, return_value=0),
         ):
             resp = _auth_client.get("/api/v1/stats")
@@ -375,8 +372,9 @@ class TestStatsSubjectDistribution:
         """Response must include all expected stat keys."""
         with (
             patch("app.services.mongodb_service.mongodb_service.get_or_create_progress", new_callable=AsyncMock, return_value={"subject_distribution": {}, "study_streak": 3}),
-            patch("app.services.mongodb_service.mongodb_service.get_user_notes", new_callable=AsyncMock, return_value=[]),
-            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_results", new_callable=AsyncMock, return_value=[]),
+            patch("app.services.mongodb_service.mongodb_service.count_user_notes", new_callable=AsyncMock, return_value=0),
+            patch("app.services.mongodb_service.mongodb_service.get_user_quiz_stats", new_callable=AsyncMock, return_value={"count": 0, "average_score": 0.0}),
+            patch("app.services.mongodb_service.mongodb_service.get_user_subject_distribution", new_callable=AsyncMock, return_value={}),
             patch("app.services.mongodb_service.mongodb_service.count_flashcards", new_callable=AsyncMock, return_value=0),
         ):
             resp = _auth_client.get("/api/v1/stats")

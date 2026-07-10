@@ -308,6 +308,10 @@ class TestFinalizeSession:
                   new_callable=AsyncMock, return_value=None),
             patch("app.services.rag_service.rag_service.index_note",
                   new_callable=AsyncMock, return_value=None),
+            # Session notes now get a user-owned subject (bug fix 2026-07-08)
+            patch("app.api.routers.sessions.resolve_user_subject",
+                  new_callable=AsyncMock,
+                  return_value=("subj-phys", "Physique", "ai_suggested")),
         ):
             resp = _auth_client.post(f"/api/v1/sessions/{_SESSION_ID}/finalize")
 
