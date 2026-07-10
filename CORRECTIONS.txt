@@ -1,0 +1,231 @@
+REVUE DE CODE PICLEARN / AACA — ÉLÉMENTS À CORRIGER (2026-07-06)
+=================================================================
+
+CORRIGÉ LE 2026-07-08 (lot sécurité critique) :
+  #1 path traversal, #4 révocation de tokens, #5 rate limit refresh,
+  #24 validation magic bytes des uploads.
+  + SECRET_KEY régénéré (aléatoire) et ACCESS_TOKEN_EXPIRE_MINUTES ramené 1440→60.
+  Tests : backend/tests/test_security_fixes.py (8 tests).
+
+CORRIGÉ LE 2026-07-08 (lot bugs fonctionnels) :
+  #2 score quiz (non-répondues = fausses), #3 stats sans plafond (agrégations),
+  #18 cascade delete flashcard_reviews, #19 total_seconds().
+  Tests : backend/tests/test_functional_fixes.py (5 tests).
+
+CORRIGÉ LE 2026-07-08 (lot performance/robustesse) :
+  #22 cache LLM borné (LRU 256), #27 bulk_write, #28 subject regex DB-side,
+  #29 projections recommendations, #30 GridFS streaming + ETag/Cache-Control.
+  + SMTP non-bloquant (anyio.to_thread — hors liste) et RATE_LIMIT_STORAGE_URI
+  configurable (memory:// par défaut, Redis en prod multi-workers).
+
+CORRIGÉ LE 2026-07-08 (lot architecture/qualité) :
+  #14 service note_creation partagé (+ fix subject_id sessions), #15 routes.py
+  découpé en 6 routers de domaine, #16 partiel (couplage DB↔RAG extrait dans
+  gdpr_service), #32 config SettingsConfigDict.
+  + frontend/lib/api.ts (client API centralisé : apiFetch + ApiError) utilisé
+  par AuthContext, login, register, forgot-password, verify-email.
+  Cibles de patch des tests migrées : app.api.routes.X → app.api.routers.auth.X.
+
+PRIORITÉ 1 — CRITIQUE
+---------------------
+[x] 1. Path traversal sur /uploads/{user_id}/{note_id}/{filename}  — CORRIGÉ 2026-07-08
+    Fichier : backend/app/main.py:113-125
+    Problème : chemin construit sans normalisation ; note_id/filename peuvent
+    contenir des "../" (encodés %2F/%2E) et permettre de lire backend/.env
+    (SECRET_KEY, clés API) → forge de JWT.
+    Fix appliqué : resolve() + is_relative_to((UPLOAD_DIR / user_id).resolve()) → 403.
+
+PRIORITÉ 2 — BUGS DE CALCUL VISIBLES PAR L'UTILISATEUR
+------------------------------------------------------
+[x] 2. submit_quiz : le score ignore les questions non répondues  — CORRIGÉ 2026-07-08
+    Fichier : backend/app/api/routes.py (submit_quiz)
+    Fix appliqué : itération sur quiz["questions"], les questions sans réponse
+    comptent fausses (feedback inclus avec user_answer="").
+
+[x] 3. /stats : total_notes plafonné à 50  — CORRIGÉ 2026-07-08
+    (total_quizzes était aussi plafonné à 100 via get_user_quiz_results)
+    Fix appliqué : count_user_notes, get_user_quiz_stats ($group count+avg) et
+    get_user_subject_distribution ($group par subject) dans mongodb_service ;
+    /stats ne charge plus aucun document.
+
+PRIORITÉ 3 — SÉCURITÉ AUTH
+--------------------------
+[x] 4. Aucune révocation de tokens  — CORRIGÉ 2026-07-08
+    Fichiers : backend/app/core/security.py, routes.py
+    Problème : changer/réinitialiser le mot de passe n'invalide pas les sessions
+    existantes (refresh token 7 jours reste valide).
+    Fix appliqué : claim "tv" (token_version) embarqué dans access + refresh JWT,
+    vérifié dans get_current_user et /auth/refresh, incrémenté à chaque
+    change_password et reset_password.
+
+[x] 5. /auth/refresh sans rate limit  — CORRIGÉ 2026-07-08
+    Fichier : backend/app/api/routes.py
+    Fix appliqué : @limiter.limit("10/minute") + param request ajouté.
+
+PRIORITÉ 4 — RACE CONDITIONS MONGODB
+------------------------------------
+[ ] 6. add_capture : perte de captures en upload concurrent
+    Fichier : backend/app/api/routes.py:1542
+    Problème : lecture de session.capture_ids puis réécriture de la liste entière.
+    Fix : {"$push": {"capture_ids": capture_id}}.
+
+[ ] 7. Compteurs de progression en read-modify-write
+    Fichiers : backend/app/api/routes.py:495-502, 1044-1048
+    Problème : total_notes / total_quizzes_taken / moyenne recomposés en Python.
+    Fix : $inc pour les compteurs ; stocker score_sum + count au lieu de la moyenne.
+
+PRIORITÉ 5 — RGPD / STOCKAGE
+----------------------------
+[ ] 8. Images orphelines "pending-" jamais nettoyées
+    Fichier : backend/app/api/routes.py:283-297 (/process/ocr-only)
+    Fix : job périodique purgeant fs.files metadata.note_id préfixé "pending-"
+    plus vieux que 24 h.
+
+[ ] 9. Rétention RGPD déclarée mais non appliquée
+    Fichier : backend/app/core/config.py:73-74 (DATA_RETENTION_DAYS, IMAGE_RETENTION_DAYS)
+    Fix : job de purge appliquant réellement ces durées.
+
+PRIORITÉ 6 — DÉPENDANCES
+------------------------
+[x] 10. bcrypt absent de requirements.txt  — CORRIGÉ 2026-07-09
+     Fix appliqué : passlib[bcrypt] et python-dotenv retirés (plus importés
+     nulle part — le 2e n'était plus utilisé depuis le fix #32 SettingsConfigDict),
+     bcrypt==5.0.0 épinglé explicitement, anyio==4.12.1 ajouté (import direct
+     depuis le fix SMTP non-bloquant). Débloque test_password_hashing sans mock.
+
+[ ] 11. Dépendances backend figées début 2024 : fastapi 0.109, pydantic 2.5.3,
+     openai 1.9.0, anthropic 0.18.0, torch 2.1.2.
+     Fix : mettre à jour au moins FastAPI, pydantic et les SDK LLM.
+     ATTENTION (constaté 2026-07-09) : numpy==1.26.3 et opencv-python==4.9.0.80
+     n'ont pas de wheel Python 3.13 (build depuis les sources, échoue sans
+     compilateur) — bumper vers Python 3.13 exige de monter numpy 2.x +
+     opencv-python compatible en même temps, sous peine de reproduire le crash
+     ABI numpy/opencv de ce matin (_ARRAY_API not found). Tester ensemble.
+
+[ ] 12. python-jose peu maintenu (historique CVE) → migrer vers PyJWT.
+
+[ ] 13. Trois stacks OCR installées (easyocr+torch, paddle, tesseract) alors que
+     seul paddle + fallback GPT-4o est utilisé → alléger l'image Docker
+     (extras optionnels). Monkeypatch Image.ANTIALIAS (ocr_service.py:10) = signal
+     d'un easyocr en fin de vie.
+
+PRIORITÉ 7 — REFACTORING
+------------------------
+[x] 14. Flux "création de note complète" dupliqué 3 fois  — CORRIGÉ 2026-07-08
+     Fix appliqué : app/services/note_creation.py (resolve_user_subject +
+     persist_note_artifacts) utilisé par capture, from-text et finalize.
+     Bug corrigé au passage : finalize résout maintenant la matière → les
+     notes de session ont un subject_id/subject_name/subject_source.
+
+[x] 15. routes.py monolithique  — CORRIGÉ 2026-07-08
+     Fix appliqué : découpage en app/api/routers/{auth,notes,study,sessions,
+     subjects,privacy}.py + common.py (helpers, limiter). routes.py = 24 lignes
+     d'agrégation/compat (router, limiter, ré-exports pour les tests).
+
+[~] 16. mongodb_service.py CRUD répété + couplage inversé  — PARTIEL 2026-07-08
+     Couplage inversé CORRIGÉ : delete_user_all_data ne touche plus ni au
+     filesystem ni au RAG ; app/services/gdpr_service.py orchestre la
+     suppression complète (DB + uploads locaux + vector store).
+     Reste : helpers CRUD génériques (ObjectId/find_one/_sanitize répétés).
+
+[ ] 17. Routes appelant des méthodes privées :
+     pipeline._run_post_ocr_steps (routes.py:537), llm_service._call_llm
+     (routes.py:803) → exposer une API publique.
+
+[x] 18. Cascade delete incohérente  — CORRIGÉ 2026-07-08
+     Fix appliqué : delete_flashcards_by_note (mongodb_service) supprime aussi
+     les flashcard_reviews liées (par flashcard_id) avant les flashcards.
+
+PRIORITÉ 8 — HYGIÈNE / QUALITÉ
+------------------------------
+[x] 19. timedelta.seconds au lieu de total_seconds()  — CORRIGÉ 2026-07-08
+     Fix appliqué : time_taken (submit_quiz) et expiration du LLMCache
+     utilisent int(...total_seconds()).
+
+[ ] 20. Datetimes naïfs/aware mélangés (datetime.now() vs now(timezone.utc)) ;
+     streak calculé en heure locale serveur (routes.py:1050-1062).
+     Fix : UTC aware partout.
+
+[ ] 21. PATCH /notes/{note_id} accepte un dict brut (routes.py:882)
+     → créer un schéma Pydantic NoteUpdate.
+
+[x] 22. LLMCache non borné  — CORRIGÉ 2026-07-08
+     Fix appliqué : OrderedDict LRU borné à 256 entrées (move_to_end au get,
+     éviction du plus ancien au set), TTL conservé.
+
+[ ] 23. Modèle Anthropic en dur "claude-sonnet-4-6" (llm_service.py:256)
+     → passer par un setting comme OPENAI_MODEL.
+
+[x] 24. Validation MIME déclarative uniquement  — CORRIGÉ 2026-07-08
+     Fix appliqué : helper _validate_image_upload (taille + content-type +
+     Pillow Image.open/verify sur les magic bytes), appliqué aux 4 endpoints
+     d'upload (ocr-only, process/image, process/capture, add_capture).
+
+[ ] 25. Tokens web en localStorage (frontend/contexts/AuthContext.tsx:14-33)
+     → risque XSS ; envisager cookie httpOnly pour le refresh token.
+
+[ ] 26. AuthContext.authFetch : refresh concurrents sur 401 multiples
+     (peut déconnecter l'utilisateur) → mutualiser la promesse de refresh ;
+     mémoïser logout (useCallback).
+
+[x] 27. reindex_session_captures : un update_one par capture  — CORRIGÉ 2026-07-08
+     Fix appliqué : bulk_write(UpdateOne...) en une seule requête, projection _id.
+
+[x] 28. get_user_subject_by_name filtrait en Python  — CORRIGÉ 2026-07-08
+     Fix appliqué : find_one avec $regex ancré insensible à la casse (re.escape).
+
+[x] 29. get_recommendations chargeait 100 notes complètes  — CORRIGÉ 2026-07-08
+     Fix appliqué : paramètre projection sur get_user_notes/get_flashcards ;
+     recommendations ne charge que subject/updated_at/created_at et note_id.
+
+[x] 30. Images GridFS chargées entièrement en RAM  — CORRIGÉ 2026-07-08
+     Fix appliqué : get_image_stream (GridFS) + StreamingResponse par chunks,
+     ETag stable (file_id immuable) + Cache-Control private/max-age=86400,
+     réponse 304 sur If-None-Match.
+
+[x] 31. Index texte default_language="french"  — CORRIGÉ 2026-07-09
+     Fix appliqué : _create_notes_text_index() utilise default_language="none"
+     (MongoDB ne stemme pas l'arabe ; "none" = tokenisation uniforme pour
+     toutes les langues). Migration automatique de l'ancien index en conflit
+     (IndexOptionsConflict code 85) : drop + recreate au démarrage.
+     Tests : backend/tests/test_mongo_indexes.py (3 tests, mocks).
+
+[x] 32. Config hybride (config.py)  — CORRIGÉ 2026-07-08
+     Fix appliqué : SettingsConfigDict (env_file absolu), load_dotenv supprimé,
+     CORS_ORIGINS lu via un champ pydantic (validation_alias) au lieu de
+     os.getenv. Le DeprecationWarning pydantic a disparu des runs pytest.
+
+[ ] 33. Erreurs avalées silencieusement (RAG, quiz, images : except Exception →
+     warning) → retourner des flags dans la réponse (ex. "rag_indexed": false).
+
+[ ] 34. Messages d'erreur API mélangés FR/EN → uniformiser.
+
+[x] 35. Fichiers égarés dans le repo  — CORRIGÉ 2026-07-09
+     .code-workspace : déjà absent (résolu avant cette session).
+     package.json racine : déjà stagé en suppression avant cette session.
+     PicoLearn/ (7,2 Mo) : confirmé doublon octet-pour-octet de
+     frontend/assets/images/piclearn-{horizontal-logo,main-logo,splash-icon}.png
+     (hash MD5 identiques) → supprimé du repo (git rm).
+
+[~] 36. Tests manquants sur les cas ci-dessus  — LARGEMENT COUVERT 2026-07-09
+     path traversal (test_security_fixes.py), quiz partiel (test_functional_fixes.py),
+     stats > 50 notes (test_functional_fixes.py + test_sm2_and_notes.py) : faits.
+     Reste : test de concurrence réelle sur add_capture (#6).
+
+CORRIGÉ LE 2026-07-09 (lot tests/DevOps/hygiène) :
+  Baseline de tests 100 % verte : 6 échecs + 1 erreur préexistants tous réparés
+  (2 bugs dans test_auth.py — code mort .__wrapped__, exp non déterministe ;
+  3 fixtures mock_ocr_service/mock_llm_service utilisant MagicMock au lieu
+  d'AsyncMock ; 1 fixture mock_image_processor manquante ; 1 test 503 qui
+  frappait la vraie DB via un appel non mocké introduit par le refactor
+  note_creation). Suite : 153 tests, stable sur 4 runs consécutifs.
+  #10 (bcrypt/passlib), #31 (index texte) : voir ci-dessus.
+  Dockerfile : libgl1-mesa-glx → libgl1 (renommé sous Debian trixie — cassait
+  DÉJÀ l'ancien Dockerfile 3.11, pas seulement un hypothétique passage à 3.13),
+  build-essential ajouté (pix2tex/stringzilla compile depuis les sources),
+  utilisateur non-root (appuser). Python de l'image délibérément gardé en 3.11
+  (voir #11 — bumper casserait numpy/opencv sans travail dédié).
+  docker-compose.yml ajouté (backend + mongo:7.0, healthcheck, volumes nommés).
+  CI GitHub Actions (.github/workflows/ci.yml) : pytest (+ service mongo:7.0)
+  et tsc --noEmit, sur push/PR vers main.
+  PicoLearn/ supprimé (housekeeping, voir #35).
