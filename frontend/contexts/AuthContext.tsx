@@ -9,6 +9,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { API_URL } from '../config/api';
+import { apiFetch } from '../lib/api';
 
 // Cross-platform storage adapter
 const storage = {
@@ -49,6 +50,7 @@ interface AuthState {
 interface AuthContextType {
     auth: AuthState;
     login: (email: string, password: string) => Promise<void>;
+    applySession: (data: any, fallbackEmail: string) => Promise<void>;
     logout: () => Promise<void>;
     authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
     updateUserName: (name: string) => Promise<void>;
@@ -68,6 +70,7 @@ const AuthContext = createContext<AuthContextType>({
         error: null
     },
     login: async () => {},
+    applySession: async () => {},
     logout: async () => {},
     authFetch: async (input, init) => fetch(input, init),
     updateUserName: async () => {},
@@ -120,44 +123,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })();
     }, []);
 
+    // Store tokens + user info from an auth response (login or verify-email)
+    const applySession = async (data: any, fallbackEmail: string) => {
+        const newAuth = {
+            token: data.access_token,
+            refreshToken: data.refresh_token || null,
+            isAuthenticated: true,
+            userName: data.user?.full_name || fallbackEmail.split('@')[0],
+            userEmail: data.user?.email || fallbackEmail,
+            preferredLanguage: data.user?.preferred_language || 'fr',
+            loading: false,
+            error: null,
+        };
+
+        setAuth(newAuth);
+        await storage.setItem('aaca_token', data.access_token);
+        await storage.setItem('aaca_username', newAuth.userName || '');
+        await storage.setItem('aaca_email', newAuth.userEmail || '');
+        await storage.setItem('aaca_preferred_language', newAuth.preferredLanguage);
+        if (data.refresh_token) {
+            await storage.setItem('aaca_refresh_token', data.refresh_token);
+        }
+    };
+
     const login = async (email: string, password: string) => {
         setAuth(prev => ({ ...prev, loading: true, error: null }));
-        
+
         try {
             const form = new FormData();
             form.append('email', email);
             form.append('password', password);
-            
-            const res = await fetch(`${API_URL}/auth/login`, { 
-                method: 'POST', 
-                body: form 
+
+            const data = await apiFetch('/auth/login', {
+                method: 'POST',
+                body: form,
+                fallbackError: 'Invalid credentials',
             });
-            
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.detail || 'Invalid credentials');
-            }
-            
-            const data = await res.json();
-            const newAuth = {
-                token: data.access_token,
-                refreshToken: data.refresh_token || null,
-                isAuthenticated: true,
-                userName: data.user?.full_name || email.split('@')[0],
-                userEmail: data.user?.email || email,
-                preferredLanguage: data.user?.preferred_language || 'fr',
-                loading: false,
-                error: null,
-            };
-            
-            setAuth(newAuth);
-            await storage.setItem('aaca_token', data.access_token);
-            await storage.setItem('aaca_username', newAuth.userName || '');
-            await storage.setItem('aaca_email', newAuth.userEmail || '');
-            await storage.setItem('aaca_preferred_language', newAuth.preferredLanguage);
-            if (data.refresh_token) {
-                await storage.setItem('aaca_refresh_token', data.refresh_token);
-            }
+            await applySession(data, email);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Login failed';
             setAuth(prev => ({ 
@@ -239,7 +241,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ auth, login, logout, authFetch, updateUserName, updateUserLanguage }}>
+        <AuthContext.Provider value={{ auth, login, applySession, logout, authFetch, updateUserName, updateUserLanguage }}>
             {children}
         </AuthContext.Provider>
     );

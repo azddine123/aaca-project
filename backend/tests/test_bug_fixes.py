@@ -44,6 +44,8 @@ def _make_mock_db(connected: bool):
     mock._connected = connected
     mock.ping = AsyncMock(return_value=connected)
     mock._create_indexes = AsyncMock()
+    # get_current_user calls get_user for token-revocation checks; None = skip
+    mock.get_user = AsyncMock(return_value=None)
     return mock
 
 
@@ -81,6 +83,20 @@ def test_health_when_mongodb_connected():
 # 3. GET /images/{file_id} — ownership + content-type
 # ---------------------------------------------------------------------------
 
+class _FakeGridOut:
+    """Minimal stand-in for a motor GridFS download stream."""
+
+    def __init__(self, data: bytes):
+        self._chunks = [data]
+
+    async def readchunk(self) -> bytes:
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+def _image_stream(data: bytes, owner: str):
+    return (_FakeGridOut(data), "image/jpeg", owner, len(data))
+
+
 def test_images_not_found():
     """GET /images/{file_id} returns 404 when the file does not exist in GridFS."""
     from fastapi.testclient import TestClient
@@ -88,7 +104,7 @@ def test_images_not_found():
     from app.core.security import create_access_token
 
     mock_db = _make_mock_db(connected=True)
-    mock_db.get_image = AsyncMock(return_value=None)
+    mock_db.get_image_stream = AsyncMock(return_value=None)
     token = create_access_token({"sub": "user-abc"})
 
     with patch("app.services.mongodb_service.mongodb_service", mock_db):
@@ -105,7 +121,7 @@ def test_images_wrong_owner():
     from app.core.security import create_access_token
 
     mock_db = _make_mock_db(connected=True)
-    mock_db.get_image = AsyncMock(return_value=(b"data", "image/jpeg", "other-user"))
+    mock_db.get_image_stream = AsyncMock(return_value=_image_stream(b"data", "other-user"))
     token = create_access_token({"sub": "user-abc"})
 
     with patch("app.services.mongodb_service.mongodb_service", mock_db):
@@ -122,7 +138,7 @@ def test_images_correct_owner():
     from app.core.security import create_access_token
 
     mock_db = _make_mock_db(connected=True)
-    mock_db.get_image = AsyncMock(return_value=(b"\xff\xd8\xff", "image/jpeg", "user-abc"))
+    mock_db.get_image_stream = AsyncMock(return_value=_image_stream(b"\xff\xd8\xff", "user-abc"))
     token = create_access_token({"sub": "user-abc"})
 
     with patch("app.services.mongodb_service.mongodb_service", mock_db):
@@ -132,6 +148,30 @@ def test_images_correct_owner():
     assert response.status_code == 200
     assert response.content == b"\xff\xd8\xff"
     assert "image/jpeg" in response.headers["content-type"]
+    # GridFS files are immutable → cacheable with a stable ETag
+    assert response.headers["etag"] == '"abc123"'
+    assert "max-age" in response.headers["cache-control"]
+
+
+def test_images_etag_304():
+    """GET /images/{file_id} with a matching If-None-Match returns 304 without a body."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.core.security import create_access_token
+
+    mock_db = _make_mock_db(connected=True)
+    mock_db.get_image_stream = AsyncMock(return_value=_image_stream(b"\xff\xd8\xff", "user-abc"))
+    token = create_access_token({"sub": "user-abc"})
+
+    with patch("app.services.mongodb_service.mongodb_service", mock_db):
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get(
+            "/images/abc123",
+            headers={"Authorization": f"Bearer {token}", "If-None-Match": '"abc123"'},
+        )
+
+    assert response.status_code == 304
+    assert response.content == b""
 
 
 def test_images_empty_owner():
@@ -141,7 +181,7 @@ def test_images_empty_owner():
     from app.core.security import create_access_token
 
     mock_db = _make_mock_db(connected=True)
-    mock_db.get_image = AsyncMock(return_value=(b"data", "image/jpeg", ""))
+    mock_db.get_image_stream = AsyncMock(return_value=_image_stream(b"data", ""))
     token = create_access_token({"sub": "user-abc"})
 
     with patch("app.services.mongodb_service.mongodb_service", mock_db):

@@ -1,20 +1,22 @@
 """Application configuration using Pydantic Settings."""
 
-import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Load environment variables from .env file
-env_path = Path(__file__).parent.parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE),
+        case_sensitive=True,
+        extra="ignore",
+    )
 
     # API Configuration
     API_V1_STR: str = "/api/v1"
@@ -69,6 +71,13 @@ class Settings(BaseSettings):
     PASSWORD_RESET_OTP_EXPIRE_MINUTES: int = 10
     PASSWORD_RESET_OTP_MAX_ATTEMPTS: int = 5
 
+    # Rate limiting storage. "memory://" is per-process only — with several
+    # uvicorn workers or behind a load balancer, use Redis:
+    # RATE_LIMIT_STORAGE_URI=redis://localhost:6379
+    # (Behind a reverse proxy, also run uvicorn with --proxy-headers so the
+    # limiter keys on the real client IP, not the proxy's.)
+    RATE_LIMIT_STORAGE_URI: str = "memory://"
+
     # RGPD / Privacy
     DATA_RETENTION_DAYS: int = 365
     IMAGE_RETENTION_DAYS: int = 90
@@ -99,15 +108,18 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 32 characters and not the default value")
         return v
 
+    # Raw comma-separated value of the CORS_ORIGINS env var (parsed below)
+    CORS_ORIGINS_STR: str = Field(default="", validation_alias="CORS_ORIGINS")
+
     @property
     def CORS_ORIGINS(self) -> list[str]:
         """Get CORS origins as a list.
 
-        Reads the CORS_ORIGINS environment variable (comma-separated URLs).
+        Parses the CORS_ORIGINS environment variable (comma-separated URLs).
         Falls back to localhost dev origins when the variable is absent.
         Never returns ["*"] to prevent inadvertent open CORS in production.
         """
-        cors_value = os.getenv("CORS_ORIGINS", "")
+        cors_value = self.CORS_ORIGINS_STR
 
         if not cors_value or cors_value.strip() == "":
             return self._DEFAULT_DEV_ORIGINS
@@ -120,11 +132,6 @@ class Settings(BaseSettings):
                 "'https://app.example.com,https://admin.example.com'."
             )
         return origins
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"
 
 
 # Global settings instance

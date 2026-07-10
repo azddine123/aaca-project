@@ -8,9 +8,8 @@ import { AppLogo } from '@/components/AppLogo';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useAuth } from '@/contexts/AuthContext';
 import { useAppColors, useAppGradients } from '@/contexts/AppearanceContext';
-import { API_URL } from '@/config/api';
+import { apiFetch } from '@/lib/api';
 import { SIZES, FONTS, SHADOWS } from '@/theme';
 
 type Strength = { level: 0 | 1 | 2 | 3; label: string; color: string };
@@ -93,7 +92,6 @@ function PrivacyPolicyModal({ visible, onClose, C }: { visible: boolean; onClose
 }
 
 export default function RegisterScreen() {
-    const { login } = useAuth();
     const C = useAppColors();
     const G = useAppGradients();
     const styles = useMemo(() => makeStyles(C), [C]);
@@ -128,26 +126,22 @@ export default function RegisterScreen() {
         }
         try {
             setLoading(true);
-            const res = await fetch(`${API_URL}/auth/register`, {
+            await apiFetch('/auth/register', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                json: {
                     email: email.trim(),
                     password,
                     full_name: fullName.trim(),
                     privacy_consent: true,
                     privacy_policy_version: PRIVACY_POLICY_VERSION,
-                }),
+                },
+                fallbackError: "Erreur lors de l'inscription",
             });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                const detail = Array.isArray(data.detail)
-                    ? data.detail.map((e: any) => e.msg).join(', ')
-                    : data.detail;
-                throw new Error(detail || "Erreur lors de l'inscription");
-            }
-            await login(email.trim(), password);
-            router.replace('/(tabs)/home');
+            // Account created — email must be confirmed via OTP before login
+            router.replace({
+                pathname: '/(auth)/verify-email',
+                params: { email: email.trim().toLowerCase() },
+            });
         } catch (err: any) {
             setError(err.message || "Une erreur est survenue.");
         } finally {

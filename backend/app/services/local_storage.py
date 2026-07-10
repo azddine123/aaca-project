@@ -5,7 +5,6 @@ Replaces Firebase Storage for local image/file storage.
 
 import uuid
 from pathlib import Path
-from typing import Any
 
 import aiofiles
 from fastapi import UploadFile

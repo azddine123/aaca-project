@@ -4,6 +4,7 @@ Replaces Firebase Firestore as the primary database.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -11,7 +12,8 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from gridfs.errors import NoFile
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, UpdateOne
+from pymongo.errors import OperationFailure
 
 from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
@@ -113,10 +115,7 @@ class MongoDBService:
         await self.db.notes.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await self.db.notes.create_index("subject")
         await self.db.notes.create_index("subject_id")
-        await self.db.notes.create_index(
-            [("title", "text"), ("raw_text", "text")],
-            default_language="french",
-        )
+        await self._create_notes_text_index()
         await self.db.quizzes.create_index("note_id")
         await self.db.quizzes.create_index("user_id")
         await self.db.flashcards.create_index("note_id")
@@ -131,6 +130,29 @@ class MongoDBService:
             "expires_at", expireAfterSeconds=0
         )
         logger.info("✅ Index MongoDB créés")
+
+    async def _create_notes_text_index(self) -> None:
+        """Create the notes text index without language-specific stemming.
+
+        The app is fr/en/ar, but MongoDB's text search stemmers don't cover
+        Arabic — a default_language of "french" (or any single language)
+        degrades search for every other language. default_language="none"
+        applies simple tokenization uniformly instead of biased stemming.
+        """
+        index_spec = [("title", "text"), ("raw_text", "text")]
+        try:
+            await self.db.notes.create_index(index_spec, default_language="none")
+        except OperationFailure as e:
+            if e.code != 85:  # IndexOptionsConflict — anything else re-raises
+                raise
+            # A pre-existing index (e.g. legacy default_language="french")
+            # has different options — replace it.
+            existing = await self.db.notes.index_information()
+            for name, info in existing.items():
+                if info.get("key") == [("_fts", "text"), ("_ftsx", 1)]:
+                    await self.db.notes.drop_index(name)
+                    break
+            await self.db.notes.create_index(index_spec, default_language="none")
 
     def _get_collection(self, name: str):
         """Get a collection by name."""
@@ -245,8 +267,9 @@ class MongoDBService:
         subject: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        projection: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Get all notes for a user."""
+        """Get all notes for a user (optionally only the projected fields)."""
         collection = self._get_collection("notes")
         if collection is None:
             return []
@@ -255,7 +278,7 @@ class MongoDBService:
         if subject:
             query["subject"] = subject
 
-        cursor = collection.find(query).sort("created_at", DESCENDING).skip(offset).limit(limit)
+        cursor = collection.find(query, projection).sort("created_at", DESCENDING).skip(offset).limit(limit)
         notes = await cursor.to_list(length=limit)
 
         result = []
@@ -453,6 +476,7 @@ class MongoDBService:
         due_only: bool = False,
         user_id: str | None = None,
         limit: int | None = None,
+        projection: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get flashcards with optional filtering, sorted by next_review when due."""
         collection = self._get_collection("flashcards")
@@ -467,7 +491,7 @@ class MongoDBService:
         if due_only:
             query["next_review"] = {"$lte": datetime.now()}
 
-        cursor = collection.find(query)
+        cursor = collection.find(query, projection)
         if due_only:
             cursor = cursor.sort("next_review", ASCENDING)
         if limit is not None:
@@ -497,6 +521,41 @@ class MongoDBService:
         if due_only:
             query["next_review"] = {"$lte": datetime.now()}
         return await collection.count_documents(query)
+
+    async def count_user_notes(self, user_id: str) -> int:
+        """Count a user's notes without fetching documents."""
+        collection = self._get_collection("notes")
+        if collection is None:
+            return 0
+        return await collection.count_documents({"user_id": user_id})
+
+    async def get_user_subject_distribution(self, user_id: str) -> dict[str, int]:
+        """Note count per subject over ALL the user's notes ($group, no limit)."""
+        collection = self._get_collection("notes")
+        if collection is None:
+            return {}
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {"_id": {"$ifNull": ["$subject", "other"]}, "count": {"$sum": 1}}},
+        ]
+        return {
+            (doc["_id"] or "other"): doc["count"]
+            async for doc in collection.aggregate(pipeline)
+        }
+
+    async def get_user_quiz_stats(self, user_id: str) -> dict[str, Any]:
+        """Count + average score over ALL quiz results (aggregation, no limit)."""
+        collection = self._get_collection("quiz_results")
+        if collection is None:
+            return {"count": 0, "average_score": 0.0}
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {"_id": None, "count": {"$sum": 1}, "avg": {"$avg": "$score"}}},
+        ]
+        docs = await collection.aggregate(pipeline).to_list(length=1)
+        if not docs:
+            return {"count": 0, "average_score": 0.0}
+        return {"count": docs[0]["count"], "average_score": round(docs[0]["avg"] or 0.0, 1)}
 
     async def save_flashcard_review(self, review_data: dict[str, Any]) -> str:
         """Persist a flashcard review entry (for SM-2 history)."""
@@ -607,10 +666,19 @@ class MongoDBService:
         return result.deleted_count
 
     async def delete_flashcards_by_note(self, note_id: str) -> int:
-        """Delete all flashcards belonging to a note. Returns deleted count."""
+        """Delete all flashcards belonging to a note, including their SM-2
+        review history. Returns deleted flashcard count."""
         collection = self._get_collection("flashcards")
         if collection is None:
             return 0
+        fc_ids = [
+            str(doc["_id"])
+            async for doc in collection.find({"note_id": note_id}, {"_id": 1})
+        ]
+        if fc_ids:
+            reviews = self._get_collection("flashcard_reviews")
+            if reviews is not None:
+                await reviews.delete_many({"flashcard_id": {"$in": fc_ids}})
         result = await collection.delete_many({"note_id": note_id})
         return result.deleted_count
 
@@ -790,10 +858,18 @@ class MongoDBService:
         if collection is None:
             return
 
-        cursor = collection.find({"session_id": session_id}).sort("order", ASCENDING)
+        cursor = collection.find({"session_id": session_id}, {"_id": 1}).sort("order", ASCENDING)
         captures = await cursor.to_list(length=None)
-        for idx, cap in enumerate(captures):
-            await collection.update_one({"_id": cap["_id"]}, {"$set": {"order": idx}})
+        if not captures:
+            return
+        # Single round trip instead of one update per capture
+        await collection.bulk_write(
+            [
+                UpdateOne({"_id": cap["_id"]}, {"$set": {"order": idx}})
+                for idx, cap in enumerate(captures)
+            ],
+            ordered=False,
+        )
 
     # ============== Image Storage (GridFS) ==============
 
@@ -953,28 +1029,8 @@ class MongoDBService:
                 logger.warning(f"GridFS user deletion partial: {e}")
         counts["gridfs_images"] = gridfs_deleted
 
-        # Delete local uploads directory for user
-        local_deleted = 0
-        try:
-            import shutil
-            from pathlib import Path
-            upload_path = Path(settings.UPLOAD_DIR) / user_id
-            if upload_path.exists():
-                shutil.rmtree(upload_path)
-                local_deleted = 1
-        except Exception as e:
-            logger.warning(f"Local upload deletion failed for user {user_id}: {e}")
-        counts["local_uploads_dir"] = local_deleted
-
-        # Delete RAG index entries
-        rag_deleted = 0
-        try:
-            from app.services.rag_service import rag_service
-            await rag_service.delete_user_notes(user_id)
-            rag_deleted = 1
-        except Exception as e:
-            logger.warning(f"RAG index deletion failed for user {user_id}: {e}")
-        counts["rag_index"] = rag_deleted
+        # Local uploads and RAG cleanup live in gdpr_service — the DB layer
+        # must not reach into other storage backends.
 
         # Delete user document last
         user_col = self._get_collection("users")
@@ -1035,12 +1091,17 @@ class MongoDBService:
         return _sanitize(result)
 
     async def get_user_subject_by_name(self, user_id: str, name: str) -> dict[str, Any] | None:
-        """Case-insensitive name lookup within a user's subjects."""
-        subjects = await self.get_user_subjects(user_id)
-        target = name.strip().lower()
-        for s in subjects:
-            if s["name"].strip().lower() == target:
-                return s
+        """Case-insensitive name lookup within a user's subjects (DB-side)."""
+        collection = self._get_collection("subjects")
+        if collection is None:
+            return None
+        doc = await collection.find_one({
+            "user_id": user_id,
+            "name": {"$regex": f"^\\s*{re.escape(name.strip())}\\s*$", "$options": "i"},
+        })
+        if doc:
+            doc["id"] = str(doc.pop("_id"))
+            return _sanitize(doc)
         return None
 
     async def get_or_create_default_subjects(self, user_id: str) -> list[dict[str, Any]]:
@@ -1131,6 +1192,28 @@ class MongoDBService:
         except NoFile:
             return None
 
+    async def get_image_stream(self, file_id: str) -> tuple[Any, str, str, int] | None:
+        """Open a GridFS download stream without loading the file in RAM.
+
+        Returns (stream, content_type, owner_id, length) or None if not found.
+        The caller is responsible for consuming the stream (readchunk()).
+        """
+        if self.gridfs is None or not self._connected:
+            return None
+        try:
+            oid = ObjectId(file_id)
+        except InvalidId:
+            return None
+
+        try:
+            stream = await self.gridfs.open_download_stream(oid)
+        except NoFile:
+            return None
+        meta = stream.metadata or {}
+        content_type = meta.get("contentType", "image/jpeg")
+        owner_id = meta.get("user_id", "")
+        return stream, content_type, owner_id, stream.length
+
     async def get_gridfs_file_owner(self, file_id: str) -> str | None:
         """Return the owner user_id for a GridFS file without downloading it."""
         if self.db is None or not self._connected:
@@ -1191,15 +1274,16 @@ class MongoDBService:
         otp_hash: str,
         otp_salt: str,
         expires_at: datetime,
+        purpose: str = "password_reset",
     ) -> str:
-        """Invalidate any previous OTP for this email, then store the new one."""
+        """Invalidate any previous OTP for this email/purpose, then store the new one."""
         collection = self._get_collection("password_reset_otps")
         if collection is None:
             raise ServiceUnavailableError("MongoDB")
 
-        # Mark all previous OTPs for this email as used
+        # Mark all previous OTPs for this email/purpose as used
         await collection.update_many(
-            {"email": email.lower(), "used": False},
+            {"email": email.lower(), "used": False, "purpose": self._purpose_filter(purpose)},
             {"$set": {"used": True}},
         )
 
@@ -1208,6 +1292,7 @@ class MongoDBService:
             "email": email.lower(),
             "otp_hash": otp_hash,
             "otp_salt": otp_salt,
+            "purpose": purpose,
             "expires_at": expires_at,
             "attempts": 0,
             "used": False,
@@ -1217,7 +1302,16 @@ class MongoDBService:
         await collection.insert_one(doc)
         return doc["id"]
 
-    async def get_valid_password_reset_otp(self, email: str) -> dict[str, Any] | None:
+    @staticmethod
+    def _purpose_filter(purpose: str) -> dict[str, Any]:
+        # Legacy password-reset docs predate the purpose field (missing == None)
+        if purpose == "password_reset":
+            return {"$in": [purpose, None]}
+        return {"$eq": purpose}
+
+    async def get_valid_password_reset_otp(
+        self, email: str, purpose: str = "password_reset"
+    ) -> dict[str, Any] | None:
         """Return the latest valid (not used, not expired, attempts < max) OTP for email."""
         from app.core.config import settings as _settings
         collection = self._get_collection("password_reset_otps")
@@ -1228,6 +1322,7 @@ class MongoDBService:
             {
                 "email": email.lower(),
                 "used": False,
+                "purpose": self._purpose_filter(purpose),
                 "expires_at": {"$gt": datetime.now(timezone.utc)},
                 "attempts": {"$lt": _settings.PASSWORD_RESET_OTP_MAX_ATTEMPTS},
             },

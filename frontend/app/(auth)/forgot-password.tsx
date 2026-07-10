@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAppColors, useAppGradients, useAppearance } from '@/contexts/AppearanceContext';
 import { SIZES, FONTS, SHADOWS } from '@/theme';
-import { API_URL } from '@/config/api';
+import { apiFetch } from '@/lib/api';
 
 // ----- types ----------------------------------------------------------------
 
@@ -71,16 +71,19 @@ export default function ForgotPasswordScreen() {
 
     const handleRequestOtp = async () => {
         setError('');
-        if (!email.trim()) { setError('Veuillez saisir votre adresse email.'); return; }
+        const trimmedEmail = email.trim().toLowerCase();
+        if (!trimmedEmail) { setError('Veuillez saisir votre adresse email.'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+            setError('Veuillez saisir une adresse email valide.');
+            return;
+        }
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/auth/forgot-password`, {
+            const data = await apiFetch('/auth/forgot-password', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim().toLowerCase() }),
+                json: { email: trimmedEmail },
+                fallbackError: "Erreur lors de l'envoi.",
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Erreur lors de l\'envoi.');
             setSuccess(data.message || 'Code envoyé.');
             setStep('otp');
         } catch (e: any) {
@@ -97,13 +100,11 @@ export default function ForgotPasswordScreen() {
         if (otp.length !== 6) { setError('Le code doit contenir 6 chiffres.'); return; }
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/auth/verify-reset-code`, {
+            const data = await apiFetch('/auth/verify-reset-code', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim().toLowerCase(), code: otp }),
+                json: { email: email.trim().toLowerCase(), code: otp },
+                fallbackError: 'Code invalide ou expiré.',
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Code invalide ou expiré.');
             if (data.verified) {
                 setSuccess('');
                 setStep('password');
@@ -123,17 +124,15 @@ export default function ForgotPasswordScreen() {
         if (newPassword !== confirmPassword) { setError('Les mots de passe ne correspondent pas.'); return; }
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/auth/reset-password`, {
+            await apiFetch('/auth/reset-password', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                json: {
                     email: email.trim().toLowerCase(),
                     code: otp,
                     new_password: newPassword,
-                }),
+                },
+                fallbackError: 'Erreur lors de la réinitialisation.',
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Erreur lors de la réinitialisation.');
             // Success — go back to login with a param so it can show a banner
             router.replace({ pathname: '/(auth)/login', params: { resetSuccess: '1' } });
         } catch (e: any) {

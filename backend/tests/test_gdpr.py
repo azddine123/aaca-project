@@ -47,7 +47,7 @@ class TestRegistrationConsent:
         with (
             patch("app.services.mongodb_service.mongodb_service.get_user_by_email",
                   new_callable=AsyncMock, return_value=None),
-            patch("app.api.routes.get_password_hash", return_value="hashed"),
+            patch("app.api.routers.auth.get_password_hash", return_value="hashed"),
         ):
             with TestClient(app) as c:
                 res = c.post("/api/v1/auth/register", json={
@@ -75,9 +75,10 @@ class TestRegistrationConsent:
         with (
             patch("app.services.mongodb_service.mongodb_service.get_user_by_email",
                   new_callable=AsyncMock, return_value=None),
-            patch("app.api.routes.get_password_hash", return_value="hashed_pw"),
+            patch("app.api.routers.auth.get_password_hash", return_value="hashed_pw"),
             patch("app.services.mongodb_service.mongodb_service.create_user",
                   new_callable=AsyncMock, return_value=fake_user_id),
+            patch("app.api.routers.auth._issue_verification_otp", new_callable=AsyncMock),
         ):
             with TestClient(app) as c:
                 res = c.post("/api/v1/auth/register", json={
@@ -89,7 +90,9 @@ class TestRegistrationConsent:
                 })
         assert res.status_code == status.HTTP_201_CREATED
         body = res.json()
-        assert "access_token" in body
+        # Email must be confirmed via OTP before tokens are issued
+        assert body["verification_required"] is True
+        assert "access_token" not in body
 
     def test_register_stores_consent_fields(self):
         """Registration must pass privacy_consent_at and privacy_policy_version to create_user."""
@@ -103,9 +106,10 @@ class TestRegistrationConsent:
         with (
             patch("app.services.mongodb_service.mongodb_service.get_user_by_email",
                   new_callable=AsyncMock, return_value=None),
-            patch("app.api.routes.get_password_hash", return_value="hashed_pw"),
+            patch("app.api.routers.auth.get_password_hash", return_value="hashed_pw"),
             patch("app.services.mongodb_service.mongodb_service.create_user",
                   side_effect=fake_create_user),
+            patch("app.api.routers.auth._issue_verification_otp", new_callable=AsyncMock),
         ):
             with TestClient(app) as c:
                 c.post("/api/v1/auth/register", json={

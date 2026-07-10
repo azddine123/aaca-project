@@ -77,4 +77,17 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Token revocation: tokens carry the user's token_version ("tv") at issue
+    # time; a password change/reset bumps it, invalidating older tokens.
+    # Best-effort check — skipped when the user doc is unavailable (DB down).
+    from app.services.mongodb_service import mongodb_service
+
+    user = await mongodb_service.get_user(user_id)
+    if user is not None and user.get("token_version", 0) != payload.get("tv", 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user_id

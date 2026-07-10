@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.responses import JSONResponse, FileResponse, Response, StreamingResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -96,18 +96,41 @@ app.add_middleware(
 @app.get("/images/{file_id}")
 async def serve_gridfs_image(
     file_id: str,
+    request: Request,
     current_user: str = Depends(get_current_user),
 ):
-    """Serve an image stored in GridFS, enforcing ownership."""
+    """Serve an image stored in GridFS, enforcing ownership.
+
+    GridFS files are immutable, so the file_id is a stable ETag; the body is
+    streamed chunk by chunk instead of being loaded entirely in RAM.
+    """
     from app.services.mongodb_service import mongodb_service as _db
 
-    result = await _db.get_image(file_id)
+    result = await _db.get_image_stream(file_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    data, content_type, owner_id = result
+    stream, content_type, owner_id, length = result
     if not owner_id or owner_id != current_user:
         raise HTTPException(status_code=403, detail="Access denied")
-    return Response(content=data, media_type=content_type)
+
+    etag = f'"{file_id}"'
+    cache_headers = {"ETag": etag, "Cache-Control": "private, max-age=86400, immutable"}
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+
+    async def _chunks():
+        while True:
+            chunk = await stream.readchunk()
+            if not chunk:
+                break
+            yield chunk
+
+    return StreamingResponse(
+        _chunks(),
+        media_type=content_type,
+        headers={**cache_headers, "Content-Length": str(length)},
+    )
 
 
 @app.get("/uploads/{user_id}/{note_id}/{filename}")
@@ -119,8 +142,13 @@ async def serve_upload(
 ):
     if current_user != user_id:
         raise HTTPException(403, "Access denied")
-    file_path = UPLOAD_DIR / user_id / note_id / filename
-    if not file_path.exists():
+    # Resolve symlinks/".." — decoded path params (e.g. %2E%2E%2F) must not
+    # escape the user's own upload directory
+    user_dir = (UPLOAD_DIR / user_id).resolve()
+    file_path = (UPLOAD_DIR / user_id / note_id / filename).resolve()
+    if not file_path.is_relative_to(user_dir):
+        raise HTTPException(403, "Access denied")
+    if not file_path.is_file():
         raise HTTPException(404, "File not found")
     return FileResponse(file_path)
 
