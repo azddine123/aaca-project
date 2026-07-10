@@ -2,9 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV and Tesseract
+# Install system dependencies for OpenCV, Tesseract, and pix2tex's
+# stringzilla dependency (which has no prebuilt wheel and compiles from
+# source — hence build-essential)
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    build-essential \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -27,8 +30,11 @@ RUN pip install --no-cache-dir pix2tex
 # Copy application code
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p uploads
+# Create uploads directory and drop root privileges
+RUN mkdir -p uploads \
+    && useradd --create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
