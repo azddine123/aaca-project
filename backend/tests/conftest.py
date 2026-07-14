@@ -2,7 +2,6 @@
 Pytest fixtures for AACA backend tests (MongoDB)
 """
 import pytest
-import asyncio
 from datetime import datetime
 from typing import AsyncGenerator, Generator
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -14,14 +13,6 @@ from httpx import AsyncClient
 from app.main import app
 from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(autouse=True)
