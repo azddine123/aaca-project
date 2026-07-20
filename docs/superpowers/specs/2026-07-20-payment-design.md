@@ -90,13 +90,19 @@ filtrée sur `created_at >= début du mois calendaire courant`)
   `{is_premium: bool, notes_used_this_month: int, notes_quota: int}`
 
 ### Enforcement du quota
-Dans `backend/app/api/routers/notes.py`, en tout début de `capture_and_process` (ligne 152) et
-`create_note_from_text` (ligne 267), **avant** tout appel OCR/LLM coûteux :
+`persist_note_artifacts` (`backend/app/services/note_creation.py`) est le point de sortie commun des
+**trois** flux qui produisent une note — `notes.py:capture_and_process` (ligne 152),
+`notes.py:create_note_from_text` (ligne 267), et `sessions.py:finalize_session` (ligne 194). Le check de
+quota doit donc être fait en tout début de chacun de ces trois endpoints (pas dans
+`persist_note_artifacts` lui-même, qui s'exécute après l'appel OCR/LLM) :
 ```
 if not user.is_premium and monthly_count >= settings.FREE_NOTES_MONTHLY_QUOTA:
     raise HTTPException(402, detail={"code": "quota_exceeded", ...})
 ```
-Le blocage avant l'appel API évite de gaspiller des crédits OCR/LLM sur une requête refusée.
+Le blocage avant l'appel API évite de gaspiller des crédits OCR/LLM sur une requête refusée. Pour
+`finalize_session`, le check doit avoir lieu avant le traitement des captures accumulées de la session,
+pas seulement avant l'appel initial `/sessions` (une session peut être créée puis finalisée bien plus
+tard, une fois le quota déjà atteint entre-temps).
 
 ## 7. Composants frontend
 
@@ -129,7 +135,9 @@ Le blocage avant l'appel API évite de gaspiller des crédits OCR/LLM sur une re
 **Automatisés (backend, exécutés et validés comme faisant partie de l'implémentation)** :
 - `handle_revenuecat_event` pour chaque type d'événement → vérifie la bascule correcte de `is_premium`
 - Idempotence : rejouer deux fois le même événement → état final identique
-- Endpoint quota : utilisateur gratuit à 10 notes → `402` ; utilisateur premium → jamais bloqué
+- Endpoint quota : utilisateur gratuit à 10 notes → `402` sur chacun des trois points d'entrée
+  (`capture_and_process`, `create_note_from_text`, `finalize_session`) ; utilisateur premium → jamais
+  bloqué
 - Webhook : secret invalide → `401` ; `app_user_id` inconnu → `200` + pas de crash
 
 **Manuels (hors de portée de l'agent, à faire par l'utilisateur)** :
