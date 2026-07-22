@@ -64,6 +64,10 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "revenueCatIosApiKey": "REPLACE_WITH_REVENUECAT_IOS_PUBLIC_KEY",
+      "revenueCatAndroidApiKey": "REPLACE_WITH_REVENUECAT_ANDROID_PUBLIC_KEY"
     }
   }
 }
