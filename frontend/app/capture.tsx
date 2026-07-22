@@ -156,6 +156,11 @@ export default function CaptureScreen() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
+            if (res.status === 402) {
+                router.push('/paywall');
+                setStep('review');
+                return;
+            }
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 throw new Error(err.detail || 'Génération IA échouée');

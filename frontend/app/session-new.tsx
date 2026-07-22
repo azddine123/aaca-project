@@ -218,6 +218,11 @@ export default function SessionNewScreen() {
             const res = await authFetch(`${API_URL}/sessions/${sessionId}/finalize`, {
                 method: 'POST',
             });
+            if (res.status === 402) {
+                router.push('/paywall');
+                setPhase('capturing');
+                return;
+            }
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 throw new Error(err.detail || 'Finalisation échouée');
