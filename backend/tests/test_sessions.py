@@ -312,6 +312,11 @@ class TestFinalizeSession:
             patch("app.api.routers.sessions.resolve_user_subject",
                   new_callable=AsyncMock,
                   return_value=("subj-phys", "Physique", "ai_suggested")),
+            # _check_note_quota (payments) runs before get_session_captures above
+            patch("app.services.mongodb_service.mongodb_service.get_user",
+                  new_callable=AsyncMock, return_value={"id": _USER_ID, "is_premium": False}),
+            patch("app.services.mongodb_service.mongodb_service.get_monthly_note_count",
+                  new_callable=AsyncMock, return_value=0),
         ):
             resp = _auth_client.post(f"/api/v1/sessions/{_SESSION_ID}/finalize")
 
@@ -327,6 +332,11 @@ class TestFinalizeSession:
                   new_callable=AsyncMock, return_value=_session()),
             patch("app.services.mongodb_service.mongodb_service.get_session_captures",
                   new_callable=AsyncMock, return_value=[]),
+            # _check_note_quota (payments) runs before get_session_captures above
+            patch("app.services.mongodb_service.mongodb_service.get_user",
+                  new_callable=AsyncMock, return_value={"id": _USER_ID, "is_premium": False}),
+            patch("app.services.mongodb_service.mongodb_service.get_monthly_note_count",
+                  new_callable=AsyncMock, return_value=0),
         ):
             resp = _auth_client.post(f"/api/v1/sessions/{_SESSION_ID}/finalize")
 

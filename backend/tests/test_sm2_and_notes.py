@@ -138,6 +138,17 @@ class TestNoteFromText:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
+            # _check_note_quota (payments) runs before the pipeline mocks above
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_user",
+                new_callable=AsyncMock,
+                return_value={"id": _USER_ID, "is_premium": False},
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_monthly_note_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
         ):
             resp = _auth_client.post(
                 "/api/v1/notes/from-text",
@@ -202,6 +213,17 @@ class TestNoteFromText:
                 "app.services.mongodb_service.mongodb_service.update_progress",
                 new_callable=AsyncMock,
                 return_value=None,
+            ),
+            # _check_note_quota (payments) runs before the pipeline mocks above
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_user",
+                new_callable=AsyncMock,
+                return_value={"id": _USER_ID, "is_premium": False},
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_monthly_note_count",
+                new_callable=AsyncMock,
+                return_value=0,
             ),
         ):
             resp = _auth_client.post(

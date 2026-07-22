@@ -14,7 +14,13 @@ from app.models.schemas import (
     CourseSessionCreate,
     SessionStatus,
 )
-from app.api.routers.common import _get_owned_session, _get_user_content_language, _validate_image_upload, limiter
+from app.api.routers.common import (
+    _check_note_quota,
+    _get_owned_session,
+    _get_user_content_language,
+    _validate_image_upload,
+    limiter,
+)
 from app.services.llm_service import llm_service
 from app.services.mongodb_service import mongodb_service
 from app.services.note_creation import persist_note_artifacts, resolve_user_subject
@@ -199,6 +205,8 @@ async def finalize_session(
     session = await _get_owned_session(session_id, current_user)
     if session["status"] == SessionStatus.COMPLETED.value:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Session already finalized")
+
+    await _check_note_quota(current_user)
 
     captures = await mongodb_service.get_session_captures(session_id)
     if not captures:

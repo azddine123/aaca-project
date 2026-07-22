@@ -87,3 +87,22 @@ async def _owned_image_url_or_none(url: str | None, current_user: str) -> str | 
         return url
 
     return None
+
+
+async def _check_note_quota(current_user: str) -> None:
+    """Raise 402 if a free user has reached the monthly note quota."""
+    user = await mongodb_service.get_user(current_user)
+    if (user or {}).get("is_premium"):
+        return
+
+    notes_used = await mongodb_service.get_monthly_note_count(current_user)
+    if notes_used >= settings.FREE_NOTES_MONTHLY_QUOTA:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "quota_exceeded",
+                "message": "Quota mensuel de notes gratuites atteint.",
+                "notes_used_this_month": notes_used,
+                "notes_quota": settings.FREE_NOTES_MONTHLY_QUOTA,
+            },
+        )

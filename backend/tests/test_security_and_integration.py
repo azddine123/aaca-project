@@ -321,6 +321,19 @@ class TestMongoDBDisconnectedMode:
                 new_callable=AsyncMock,
                 side_effect=ServiceUnavailableError("MongoDB"),
             ),
+            # _check_note_quota (payments) also hits mongodb_service before
+            # create_note is reached — mock it the same way as above so the
+            # 503 path under test is exercised, not a cross-loop RuntimeError.
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_user",
+                new_callable=AsyncMock,
+                return_value={"id": _TEST_USER_ID, "is_premium": False},
+            ),
+            patch(
+                "app.services.mongodb_service.mongodb_service.get_monthly_note_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
         ):
             # Real PNG bytes — uploads are now validated with Pillow (magic
             # bytes), so a truncated fake would be rejected with 400 before

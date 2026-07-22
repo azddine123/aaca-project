@@ -19,6 +19,7 @@ from app.models.schemas import (
     SummaryResponse,
 )
 from app.api.routers.common import (
+    _check_note_quota,
     _get_owned_note,
     _get_user_content_language,
     _owned_image_url_or_none,
@@ -158,6 +159,7 @@ async def capture_and_process(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Capture, process, and save a note in one step."""
+    await _check_note_quota(current_user)
     contents = await file.read()
     _validate_image_upload(contents, file.content_type)
 
@@ -269,6 +271,7 @@ async def create_note_from_text(
     current_user: str = Depends(get_current_user),
 ) -> dict:
     """Create and save a note from user-corrected OCR text (skips image processing)."""
+    await _check_note_quota(current_user)
     import time
     if not data.raw_text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Text cannot be empty")
