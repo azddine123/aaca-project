@@ -529,6 +529,19 @@ class MongoDBService:
             return 0
         return await collection.count_documents({"user_id": user_id})
 
+    async def get_monthly_note_count(self, user_id: str) -> int:
+        """Count notes created since the start of the current calendar month."""
+        collection = self._get_collection("notes")
+        if collection is None:
+            return 0
+        month_start = datetime.now().replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        return await collection.count_documents({
+            "user_id": user_id,
+            "created_at": {"$gte": month_start},
+        })
+
     async def get_user_subject_distribution(self, user_id: str) -> dict[str, int]:
         """Note count per subject over ALL the user's notes ($group, no limit)."""
         collection = self._get_collection("notes")
