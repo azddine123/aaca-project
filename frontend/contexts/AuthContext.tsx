@@ -8,8 +8,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { jwtDecode } from 'jwt-decode';
 import { API_URL } from '../config/api';
 import { apiFetch } from '../lib/api';
+import { initPurchases } from '../lib/purchases';
 
 // Cross-platform storage adapter
 const storage = {
@@ -45,6 +47,9 @@ interface AuthState {
     preferredLanguage: PreferredLanguage;
     loading: boolean;
     error: string | null;
+    isPremium: boolean;
+    notesUsedThisMonth: number;
+    notesQuota: number;
 }
 
 interface AuthContextType {
@@ -55,6 +60,7 @@ interface AuthContextType {
     authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
     updateUserName: (name: string) => Promise<void>;
     updateUserLanguage: (language: PreferredLanguage) => Promise<void>;
+    refreshPremiumStatus: (tokenOverride?: string) => Promise<void>;
 }
 
 // Context
@@ -67,7 +73,10 @@ const AuthContext = createContext<AuthContextType>({
         userEmail: null,
         preferredLanguage: 'fr',
         loading: true,
-        error: null
+        error: null,
+        isPremium: false,
+        notesUsedThisMonth: 0,
+        notesQuota: 10,
     },
     login: async () => {},
     applySession: async () => {},
@@ -75,6 +84,7 @@ const AuthContext = createContext<AuthContextType>({
     authFetch: async (input, init) => fetch(input, init),
     updateUserName: async () => {},
     updateUserLanguage: async () => {},
+    refreshPremiumStatus: async () => {},
 });
 
 // Hook
@@ -83,15 +93,38 @@ export const useAuth = () => useContext(AuthContext);
 // Provider
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [auth, setAuth] = useState<AuthState>({
-        token: null, 
-        refreshToken: null, 
+        token: null,
+        refreshToken: null,
         isAuthenticated: false,
-        userName: null, 
-        userEmail: null, 
+        userName: null,
+        userEmail: null,
         preferredLanguage: 'fr',
-        loading: true, 
+        loading: true,
         error: null,
+        isPremium: false,
+        notesUsedThisMonth: 0,
+        notesQuota: 10,
     });
+
+    const refreshPremiumStatus = useCallback(async (tokenOverride?: string) => {
+        const token = tokenOverride || auth.token;
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/payments/status`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            setAuth(prev => ({
+                ...prev,
+                isPremium: !!data.is_premium,
+                notesUsedThisMonth: data.notes_used_this_month ?? 0,
+                notesQuota: data.notes_quota ?? 10,
+            }));
+        } catch {
+            // Best effort — premium status just stays at its previous value.
+        }
+    }, [auth.token]);
 
     // Load stored auth on mount
     useEffect(() => {
@@ -102,18 +135,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const userEmail = await storage.getItem('aaca_email');
                 const preferredLanguage = await storage.getItem('aaca_preferred_language');
                 const refreshToken = await storage.getItem('aaca_refresh_token');
-                
+
                 if (token) {
-                    setAuth({ 
-                        token, 
-                        refreshToken, 
-                        isAuthenticated: true, 
-                        userName, 
-                        userEmail, 
+                    setAuth(prev => ({
+                        ...prev,
+                        token,
+                        refreshToken,
+                        isAuthenticated: true,
+                        userName,
+                        userEmail,
                         preferredLanguage: preferredLanguage === 'en' || preferredLanguage === 'ar' ? preferredLanguage : 'fr',
-                        loading: false, 
-                        error: null 
-                    });
+                        loading: false,
+                        error: null,
+                    }));
+                    try {
+                        const userId = jwtDecode<{ sub: string }>(token).sub;
+                        await initPurchases(userId);
+                    } catch {
+                        // Best effort — a stale/invalid token here is caught by authFetch's refresh logic.
+                    }
+                    await refreshPremiumStatus(token);
                 } else {
                     setAuth(prev => ({ ...prev, loading: false }));
                 }
@@ -134,9 +175,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             preferredLanguage: data.user?.preferred_language || 'fr',
             loading: false,
             error: null,
+            isPremium: false,
+            notesUsedThisMonth: 0,
+            notesQuota: 10,
         };
 
-        setAuth(newAuth);
+        setAuth(prev => ({ ...prev, ...newAuth }));
         await storage.setItem('aaca_token', data.access_token);
         await storage.setItem('aaca_username', newAuth.userName || '');
         await storage.setItem('aaca_email', newAuth.userEmail || '');
@@ -144,6 +188,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (data.refresh_token) {
             await storage.setItem('aaca_refresh_token', data.refresh_token);
         }
+
+        try {
+            const userId = jwtDecode<{ sub: string }>(data.access_token).sub;
+            await initPurchases(userId);
+        } catch {
+            // Best effort — purchases init failure must not block login.
+        }
+        await refreshPremiumStatus(data.access_token);
     };
 
     const login = async (email: string, password: string) => {
@@ -187,7 +239,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             userEmail: null,
             preferredLanguage: 'fr',
             loading: false,
-            error: null
+            error: null,
+            isPremium: false,
+            notesUsedThisMonth: 0,
+            notesQuota: 10,
         });
     };
 
@@ -241,7 +296,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ auth, login, applySession, logout, authFetch, updateUserName, updateUserLanguage }}>
+        <AuthContext.Provider value={{ auth, login, applySession, logout, authFetch, updateUserName, updateUserLanguage, refreshPremiumStatus }}>
             {children}
         </AuthContext.Provider>
     );
