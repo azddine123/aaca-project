@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     IMAGE_RETENTION_DAYS: int = 90
     PRIVACY_POLICY_VERSION: str = "2026-05-v1"
 
+    # Payments (RevenueCat)
+    REVENUECAT_WEBHOOK_SECRET: str | None = None
+    FREE_NOTES_MONTHLY_QUOTA: int = 10
+
     # Safe default origins for local development only.
     # In production, set CORS_ORIGINS as a comma-separated list of allowed origins.
     _DEFAULT_DEV_ORIGINS: list[str] = [
