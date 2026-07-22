@@ -18,7 +18,7 @@ const FEATURES: { icon: string; label: string }[] = [
 ];
 
 export default function PaywallScreen() {
-    const { auth, refreshPremiumStatus } = useAuth();
+    const { auth, refreshPremiumStatus, setPremiumOptimistic } = useAuth();
     const C = useAppColors();
     const insets = useSafeAreaInsets();
     const [offering, setOffering] = useState<any>(null);
@@ -31,6 +31,8 @@ export default function PaywallScreen() {
             try {
                 const current = await getCurrentOffering();
                 setOffering(current);
+            } catch {
+                // Best effort — offering stays null; the UI already handles that gracefully.
             } finally {
                 setLoadingOffering(false);
             }
@@ -49,6 +51,9 @@ export default function PaywallScreen() {
             const unlocked = await purchasePackage(monthlyPackage);
             if (unlocked) {
                 await refreshPremiumStatus();
+                // Always applied last: a stale server read from refreshPremiumStatus() must
+                // never clobber the premium unlock we just paid for.
+                setPremiumOptimistic();
                 Alert.alert('Bienvenue dans Premium', 'Votre abonnement est actif. Bonne étude !');
                 router.back();
             }
@@ -58,13 +63,18 @@ export default function PaywallScreen() {
         } finally {
             setPurchasing(false);
         }
-    }, [monthlyPackage, refreshPremiumStatus]);
+    }, [monthlyPackage, refreshPremiumStatus, setPremiumOptimistic]);
 
     const handleRestore = useCallback(async () => {
         setRestoring(true);
         try {
             const unlocked = await restorePurchases();
             await refreshPremiumStatus();
+            if (unlocked) {
+                // Always applied last: a stale server read from refreshPremiumStatus() must
+                // never clobber the premium unlock we just restored.
+                setPremiumOptimistic();
+            }
             Alert.alert(
                 unlocked ? 'Abonnement restauré' : 'Aucun abonnement trouvé',
                 unlocked ? 'Votre accès premium a été restauré.' : "Aucun achat premium actif n'a été trouvé sur ce compte."
@@ -75,7 +85,7 @@ export default function PaywallScreen() {
         } finally {
             setRestoring(false);
         }
-    }, [refreshPremiumStatus]);
+    }, [refreshPremiumStatus, setPremiumOptimistic]);
 
     const priceLabel = monthlyPackage?.product?.priceString ?? '—';
 

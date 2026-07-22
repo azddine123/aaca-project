@@ -61,6 +61,7 @@ interface AuthContextType {
     updateUserName: (name: string) => Promise<void>;
     updateUserLanguage: (language: PreferredLanguage) => Promise<void>;
     refreshPremiumStatus: (tokenOverride?: string) => Promise<void>;
+    setPremiumOptimistic: () => void;
 }
 
 // Context
@@ -85,6 +86,7 @@ const AuthContext = createContext<AuthContextType>({
     updateUserName: async () => {},
     updateUserLanguage: async () => {},
     refreshPremiumStatus: async () => {},
+    setPremiumOptimistic: () => {},
 });
 
 // Hook
@@ -125,6 +127,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Best effort — premium status just stays at its previous value.
         }
     }, [auth.token]);
+
+    // Synchronously unlock premium locally, without waiting for a network round-trip.
+    // Used right after a successful purchase/restore, since the RevenueCat webhook that
+    // flips `user.is_premium` server-side lands asynchronously and a subsequent
+    // `refreshPremiumStatus()` read could otherwise still be stale.
+    const setPremiumOptimistic = useCallback(() => {
+        setAuth(prev => ({ ...prev, isPremium: true }));
+    }, []);
 
     // Load stored auth on mount
     useEffect(() => {
@@ -296,7 +306,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ auth, login, applySession, logout, authFetch, updateUserName, updateUserLanguage, refreshPremiumStatus }}>
+        <AuthContext.Provider value={{ auth, login, applySession, logout, authFetch, updateUserName, updateUserLanguage, refreshPremiumStatus, setPremiumOptimistic }}>
             {children}
         </AuthContext.Provider>
     );

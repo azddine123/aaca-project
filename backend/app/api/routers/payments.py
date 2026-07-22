@@ -1,5 +1,7 @@
 """Payment routes: RevenueCat webhook and premium status."""
 
+import secrets
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.core.config import settings
@@ -16,9 +18,8 @@ async def revenuecat_webhook(
     authorization: str | None = Header(None),
 ) -> dict:
     """Receive RevenueCat subscription events."""
-    if (
-        not settings.REVENUECAT_WEBHOOK_SECRET
-        or authorization != settings.REVENUECAT_WEBHOOK_SECRET
+    if not settings.REVENUECAT_WEBHOOK_SECRET or not secrets.compare_digest(
+        authorization or "", settings.REVENUECAT_WEBHOOK_SECRET
     ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid webhook secret")
 
