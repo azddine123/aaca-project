@@ -6,12 +6,13 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAuth, type PreferredLanguage } from '@/contexts/AuthContext';
 import { useNotes } from '@/contexts/NotesContext';
 import { useAppearance, useAppColors, type Theme } from '@/contexts/AppearanceContext';
 import { SIZES, SHADOWS, GRADIENTS } from '@/theme';
 import { API_URL } from '@/config/api';
-import { AacaCard, StatusBadge } from '@/components/UIKit';
+import { AacaCard, StatusBadge, ProgressBar } from '@/components/UIKit';
 import { ZelligePattern } from '@/components/ZelligePattern';
 
 type MenuItem = {
@@ -516,6 +517,43 @@ export default function ProfileScreen() {
                     </View>
                 </AacaCard>
 
+                <AacaCard style={styles.premiumCard}>
+                    <View style={styles.premiumHeader}>
+                        <View style={[styles.premiumIcon, { backgroundColor: (auth.isPremium ? C.success : C.primary) + '18' }]}>
+                            <MaterialCommunityIcons
+                                name={auth.isPremium ? 'crown' : 'crown-outline'}
+                                size={20}
+                                color={auth.isPremium ? C.success : C.primary}
+                            />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.studyTitle}>{auth.isPremium ? 'Premium actif' : 'Version gratuite'}</Text>
+                            <Text style={styles.studySub}>
+                                {auth.isPremium
+                                    ? 'Notes illimitées, merci pour votre soutien !'
+                                    : `${auth.notesUsedThisMonth}/${auth.notesQuota} notes utilisées ce mois-ci`}
+                            </Text>
+                        </View>
+                    </View>
+                    {!auth.isPremium && (
+                        <>
+                            <ProgressBar
+                                value={auth.notesQuota > 0 ? auth.notesUsedThisMonth / auth.notesQuota : 0}
+                                color={auth.notesUsedThisMonth >= auth.notesQuota ? C.error : C.primary}
+                                style={{ marginTop: SIZES.sm }}
+                            />
+                            <TouchableOpacity
+                                style={[styles.premiumCta, { backgroundColor: C.primary }]}
+                                onPress={() => router.push('/paywall')}
+                                activeOpacity={0.85}
+                            >
+                                <MaterialCommunityIcons name="crown-outline" size={16} color="#fff" />
+                                <Text style={styles.premiumCtaText}>Passer à Premium</Text>
+                            </TouchableOpacity>
+                        </>
+                    )}
+                </AacaCard>
+
                 {/* ── Achievement chips ── */}
                 <View style={styles.achieveRow}>
                     <AchieveBadge icon="star-shooting" label="Premier cours" color={C.warning}  unlocked={notes.length > 0} C={C} />
@@ -624,6 +662,15 @@ const makeStyles = (C: any, topInset: number) => StyleSheet.create({
     studyIcon: { width: 46, height: 46, borderRadius: SIZES.borderRadius, alignItems: 'center', justifyContent: 'center' },
     studyTitle: { fontSize: SIZES.fontMd, color: C.textPrimary, fontWeight: '800' },
     studySub: { fontSize: SIZES.fontXs, color: C.textSecondary, lineHeight: 18, marginTop: 2 },
+
+    premiumCard: { gap: 0 },
+    premiumHeader: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+    premiumIcon: { width: 40, height: 40, borderRadius: SIZES.borderRadius, alignItems: 'center', justifyContent: 'center' },
+    premiumCta: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.xs,
+        marginTop: SIZES.md, paddingVertical: 12, borderRadius: SIZES.borderRadius,
+    },
+    premiumCtaText: { color: '#fff', fontSize: SIZES.fontSm, fontWeight: '700' },
 
     achieveRow: { flexDirection: 'row', gap: SIZES.sm },
 
