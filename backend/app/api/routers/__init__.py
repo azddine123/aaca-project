@@ -6,11 +6,11 @@ the public API is byte-for-byte identical to the pre-split monolith.
 
 from fastapi import APIRouter
 
-from app.api.routers import auth, notes, privacy, sessions, study, subjects
+from app.api.routers import auth, notes, payments, privacy, sessions, study, subjects
 from app.api.routers.common import limiter
 
 router = APIRouter()
-for _module in (auth, notes, study, sessions, subjects, privacy):
+for _module in (auth, notes, study, sessions, subjects, privacy, payments):
     router.include_router(_module.router)
 
 __all__ = ["router", "limiter"]
