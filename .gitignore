@@ -59,3 +59,6 @@ docs/*.html
 docs/*.tex
 docs/*.txt
 docs/*.pdf
+
+# Files kept locally but out of scope for the app (see cleanup) — not pushed
+trash/

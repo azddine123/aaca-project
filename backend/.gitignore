@@ -44,6 +44,9 @@ service-account*.json
 uploads/*
 !uploads/.gitkeep
 
+# Vector store (RAG index — contains real user note content, keyed by user ID)
+vector_store/
+
 # Logs
 *.log
 logs/
