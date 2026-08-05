@@ -30,16 +30,14 @@ class TestProcessingEndpoints:
 class TestImageProcessor:
     """Test image processing service"""
 
-    def test_preprocess_image(self, mock_image_processor):
+    @pytest.mark.asyncio
+    async def test_preprocess_image(self, mock_image_processor):
         """Test image preprocessing"""
-        import asyncio
         from app.services.image_processor import image_processor
-        
+
         test_image = b"test_image_bytes"
-        
-        result = asyncio.run(
-            image_processor.preprocess(test_image, perspective_correction=True)
-        )
+
+        result = await image_processor.preprocess(test_image, perspective_correction=True)
         
         assert result is not None
         assert len(result) == 2

@@ -356,12 +356,12 @@ class TestMongoDBDisconnectedMode:
         assert err.service == "MongoDB"
         assert "MongoDB" in str(err)
 
-    def test_mongodb_service_raises_when_disconnected(self):
+    @pytest.mark.asyncio
+    async def test_mongodb_service_raises_when_disconnected(self):
         """
         MongoDBService write methods must raise ServiceUnavailableError
         when self.db is None (i.e. MongoDB not connected).
         """
-        import asyncio
         from app.services.mongodb_service import MongoDBService
 
         # Create a fresh instance with no DB connection
@@ -370,16 +370,16 @@ class TestMongoDBDisconnectedMode:
         svc.db = None
 
         with pytest.raises(ServiceUnavailableError):
-            asyncio.run(svc.create_user({"email": "x@y.com", "full_name": "X"}))
+            await svc.create_user({"email": "x@y.com", "full_name": "X"})
 
         with pytest.raises(ServiceUnavailableError):
-            asyncio.run(svc.create_note({"user_id": "u1", "title": "T"}))
+            await svc.create_note({"user_id": "u1", "title": "T"})
 
         with pytest.raises(ServiceUnavailableError):
-            asyncio.run(svc.create_quiz({"note_id": "n1", "questions": []}))
+            await svc.create_quiz({"note_id": "n1", "questions": []})
 
         with pytest.raises(ServiceUnavailableError):
-            asyncio.run(svc.save_quiz_result({"user_id": "u1", "score": 80}))
+            await svc.save_quiz_result({"user_id": "u1", "score": 80})
 
         with pytest.raises(ServiceUnavailableError):
-            asyncio.run(svc.create_flashcards("n1", [{"front": "Q", "back": "A"}]))
+            await svc.create_flashcards("n1", [{"front": "Q", "back": "A"}])
