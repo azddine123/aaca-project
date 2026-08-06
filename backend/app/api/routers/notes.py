@@ -36,6 +36,17 @@ logger = logging.getLogger("aaca")
 router = APIRouter(tags=["notes"])
 
 
+def _note_preview(note: dict[str, Any]) -> str:
+    """Short snippet for list/search views.
+
+    Prefers the LLM-generated summary (clean prose) over raw_text, which is
+    the unprocessed OCR output and can start with raw LaTeX markup
+    (\\[, \\begin{array}, \\textbf{...}) when the note opens on a formula.
+    """
+    text = note.get("summary") or note["raw_text"]
+    return text[:200] + "..." if len(text) > 200 else text
+
+
 class NoteFromTextRequest(BaseModel):
     raw_text: str
     title: str | None = None
@@ -361,7 +372,7 @@ async def list_notes(
             id=n["id"],
             title=n["title"],
             subject=n["subject"],
-            preview=n["raw_text"][:200] + "..." if len(n["raw_text"]) > 200 else n["raw_text"],
+            preview=_note_preview(n),
             created_at=n["created_at"],
             thumbnail_url=n.get("original_image_url"),
             subject_id=n.get("subject_id"),
@@ -665,7 +676,7 @@ async def search_notes(
                 id=r["id"],
                 title=r["title"],
                 subject=r["subject"],
-                preview=r["raw_text"][:200] + "..." if len(r["raw_text"]) > 200 else r["raw_text"],
+                preview=_note_preview(r),
                 created_at=r["created_at"],
                 thumbnail_url=r.get("original_image_url"),
                 subject_id=r.get("subject_id"),
