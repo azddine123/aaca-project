@@ -137,6 +137,25 @@ class Settings(BaseSettings):
             )
         return origins
 
+    @property
+    def CORS_ORIGIN_REGEX(self) -> str | None:
+        """Regex matching any localhost/private-LAN origin, on any port.
+
+        Dev convenience only: lets a phone on the same Wi-Fi (Expo Go, web
+        preview) reach the API without editing CORS_ORIGINS every time the
+        machine's LAN IP changes. Only active when DEBUG is true — always
+        None in production, where CORS_ORIGINS stays the sole allow-list.
+        """
+        if not self.DEBUG:
+            return None
+        return (
+            r"^https?://(localhost|127\.0\.0\.1"
+            r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"|192\.168\.\d{1,3}\.\d{1,3}"
+            r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})"
+            r"(:\d+)?$"
+        )
+
 
 # Global settings instance
 settings = Settings()
